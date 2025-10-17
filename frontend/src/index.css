@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply font-sans antialiased;
+  }
+}
+
+@layer components {
+  .number-ball {
+    @apply animate-bounce-in;
+  }
+  
+  .bonus-ball {
+    @apply animate-bounce-in;
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+  }
+  
+  .predict-btn {
+    @apply transition-all duration-300;
+  }
+  
+  .predict-btn:hover:not(:disabled) {
+    @apply animate-pulse-glow;
+  }
+  
+  .game-card {
+    @apply transition-all duration-300 border-2 border-transparent;
+  }
+  
+  .game-card:hover {
+    @apply border-primary-500 transform -translate-y-1 shadow-xl;
+  }
+  
+  .game-card.selected {
+    @apply border-primary-500 bg-gradient-to-br from-primary-50 to-blue-50;
+  }
+}
