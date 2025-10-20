@@ -90,24 +90,7 @@ function normalizeDate(date) {
     return null;
   }
 }
-async launchBrowser() {
-  return await puppeteer.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--no-first-run',
-      '--no-zygote',
-      '--disable-extensions'
-    ],
-    // Use system Chrome on Render
-    executablePath: process.env.NODE_ENV === 'production' 
-      ? '/usr/bin/google-chrome-stable' 
-      : undefined
-  });
-}
+
 function getScraper(gameType) {
   if (gameType === 'mark6') return scraperMark6;
   if (gameType === 'lotto649') return scraperLotto649;

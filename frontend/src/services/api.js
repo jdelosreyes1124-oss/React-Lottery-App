@@ -1,18 +1,17 @@
 import axios from 'axios';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 
 // Create axios instance with default config
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000, // 30 second timeout
+  timeout: 30000, // 30 second timeout 
   headers: {
     'Content-Type': 'application/json'
   }
 });
 
-// Request interceptor
+// Request interceptor 
 api.interceptors.request.use(
   (config) => {
     console.log(`🔄 API Request: ${config.method?.toUpperCase()} ${config.url}`);
