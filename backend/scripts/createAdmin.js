@@ -1,48 +1,94 @@
-require('dotenv').config();
+// createAdmin.js - Run this once to create/update admin user
+const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
-const db = require('../models_mongoose');
+require('dotenv').config();
 
-async function createAdminUser() {
+async function createAdmin() {
   try {
-    await db.connectDB();
+    // Build connection string
+    let mongoUri = process.env.MONGODB_URI;
+    if (!mongoUri.endsWith('/')) mongoUri += '/';
+    mongoUri += process.env.MONGODB_DB;
+    
+    await mongoose.connect(mongoUri);
+    console.log('✅ Connected to MongoDB');
+    
+    // Define User schema
+    const userSchema = new mongoose.Schema({
+      _id: Number,
+      username: { type: String, required: true, unique: true },
+      email: { type: String, unique: true, sparse: true },
+      password: { type: String, required: true },
+      role: { type: String, enum: ['user', 'admin'], default: 'user' },
+      isActive: { type: Boolean, default: true },
+      lastLogin: Date
+    }, {
+      timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }
+    });
+    
+    const User = mongoose.model('User', userSchema, 'users');
     
     const username = 'admin';
-    const password = 'Admin123!'; // Change this!
+    const password = 'Admin123!'; // Your password from the screenshot
+    
+    // Hash password
+    console.log('🔒 Hashing password...');
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+    
+    console.log('Original password:', password);
+    console.log('Hashed password:', hashedPassword);
     
     // Check if admin exists
-    const existing = await db.User.findOne({ username });
-    if (existing) {
-      console.log('Admin user already exists');
-      existing.role = 'admin';
-      await existing.save();
-      console.log('Updated to admin role');
+    const existingAdmin = await User.findOne({ username });
+    
+    if (existingAdmin) {
+      // Update password
+      console.log('📝 Updating existing admin user...');
+      existingAdmin.password = hashedPassword;
+      existingAdmin.role = 'admin';
+      existingAdmin.isActive = true;
+      await existingAdmin.save();
+      console.log('✅ Admin user updated successfully!');
+      console.log('User ID:', existingAdmin._id);
     } else {
-      // Get the highest existing ID and add 1
-      const lastUser = await db.User.findOne().sort({ _id: -1 });
-      const newId = lastUser ? lastUser._id + 1 : 1;
+      // Get next ID
+      const lastUser = await User.findOne().sort({ _id: -1 });
+      const nextId = lastUser ? lastUser._id + 1 : 1;
       
       // Create new admin
-      const hashedPassword = await bcrypt.hash(password, 10);
-      const admin = new db.User({
-        _id: newId,  // Add this line
+      console.log('📝 Creating new admin user...');
+      const admin = new User({
+        _id: nextId,
         username,
+        email: 'admin@lottery.com',
         password: hashedPassword,
         role: 'admin',
-        email: 'admin@lottery.com',
         isActive: true
       });
       await admin.save();
-      console.log('Admin user created successfully');
-      console.log('Username:', username);
-      console.log('Password:', password);
-      console.log('⚠️  CHANGE THIS PASSWORD AFTER FIRST LOGIN!');
+      console.log('✅ Admin user created successfully!');
+      console.log('User ID:', nextId);
     }
     
+    console.log('\n=====================================');
+    console.log('🎉 Admin Account Ready!');
+    console.log('=====================================');
+    console.log('Username:', username);
+    console.log('Password:', password);
+    console.log('Role: admin');
+    console.log('=====================================');
+    console.log('\n⚠️  Save these credentials securely!');
+    console.log('✅ You can now login to your application\n');
+    
+    await mongoose.disconnect();
+    console.log('👋 Disconnected from MongoDB');
     process.exit(0);
   } catch (error) {
-    console.error('Error:', error);
+    console.error('❌ Error:', error.message);
+    console.error(error);
     process.exit(1);
   }
 }
 
-createAdminUser();
+createAdmin();

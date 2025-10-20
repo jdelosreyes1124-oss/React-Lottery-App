@@ -13,8 +13,6 @@ const userSchema = new mongoose.Schema({
   timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }
 });
 
-userSchema.methods.validatePassword = async function(password) {
-  return await bcrypt.compare(password, this.password);
-};
+userSchema.methods.validatePassword = async function(password) { const bcrypt = require('bcryptjs'); return await bcrypt.compare(password, this.password); };
 
 module.exports = mongoose.model('User', userSchema, 'users');

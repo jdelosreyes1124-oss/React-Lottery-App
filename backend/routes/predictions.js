@@ -609,9 +609,12 @@ router.post('/:gameType', async (req, res) => {
 router.post('/:gameType/automation', async (req, res) => {
   try {
     const { gameType } = req.params;
-    const { period = '1month', multiplier = 1 } = req.body;
+    const { period = '1month', iterations = 1000 } = req.body;
     
-    console.log('Automation request for:', gameType, 'multiplier:', multiplier);
+    console.log('=== AUTOMATION START ===');
+    console.log('Game Type:', gameType);
+    console.log('Iterations:', iterations);
+    console.log('Period:', period);
     
     if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
       return res.status(400).json({
@@ -620,6 +623,16 @@ router.post('/:gameType/automation', async (req, res) => {
       });
     }
     
+    // Game configuration
+    const gameConfig = {
+      '539': { numbersPerDraw: 5, maxNumber: 39, hasBonus: false },
+      'mark6': { numbersPerDraw: 6, maxNumber: 49, hasBonus: true },
+      'lotto649': { numbersPerDraw: 6, maxNumber: 49, hasBonus: true }
+    };
+    
+    const config = gameConfig[gameType];
+    
+    // Get frequency data
     const daysMap = {
       '1week': 7,
       '1month': 30,
@@ -630,39 +643,95 @@ router.post('/:gameType/automation', async (req, res) => {
     const days = daysMap[period] || 30;
     const frequency = await dbService.getNumberFrequency(gameType, days);
     
-    const allNumbers = [];
-    for (let i = 0; i < multiplier; i++) {
-      frequency.mainNumbers.forEach(f => {
-        for (let j = 0; j < f.frequency; j++) {
-          allNumbers.push(f.number);
-        }
-      });
+    console.log('Frequency data loaded:', frequency.totalDraws, 'draws analyzed');
+    
+    // Generate unique combinations
+    const combinations = new Set();
+    const frequencyTracker = {};
+    
+    // Initialize frequency tracker
+    for (let i = 1; i <= config.maxNumber; i++) {
+      frequencyTracker[i] = 0;
     }
     
-    const finalFrequency = {};
-    allNumbers.forEach(num => {
-      finalFrequency[num] = (finalFrequency[num] || 0) + 1;
-    });
+    // Generate combinations using weighted random selection
+    let attempts = 0;
+    const maxAttempts = iterations * 10; // Prevent infinite loop
     
-    const topNumbers = Object.entries(finalFrequency)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([num]) => parseInt(num));
-
+    while (combinations.size < iterations && attempts < maxAttempts) {
+      attempts++;
+      
+      const numbers = [];
+      const availableNumbers = [...frequency.mainNumbers];
+      
+      // Select numbers with weighted probability
+      while (numbers.length < config.numbersPerDraw && availableNumbers.length > 0) {
+        // Top numbers have higher chance
+        const maxIndex = Math.min(15, availableNumbers.length);
+        const randomIndex = Math.floor(Math.pow(Math.random(), 2) * maxIndex);
+        
+        const selected = availableNumbers.splice(randomIndex, 1)[0];
+        if (selected && !numbers.includes(selected.number)) {
+          numbers.push(selected.number);
+        }
+      }
+      
+      // Fill remaining with random numbers if needed
+      while (numbers.length < config.numbersPerDraw) {
+        const num = Math.floor(Math.random() * config.maxNumber) + 1;
+        if (!numbers.includes(num)) {
+          numbers.push(num);
+        }
+      }
+      
+      // Sort and create combination string
+      numbers.sort((a, b) => a - b);
+      const combinationKey = numbers.join(',');
+      
+      // Add to set if unique
+      if (!combinations.has(combinationKey)) {
+        combinations.add(combinationKey);
+        
+        // Track frequency
+        numbers.forEach(num => {
+          frequencyTracker[num]++;
+        });
+      }
+    }
+    
+    console.log('Generated combinations:', combinations.size);
+    console.log('Total attempts:', attempts);
+    
+    // Convert frequency tracker to sorted array
+    const frequencyData = Object.entries(frequencyTracker)
+      .map(([num, freq]) => ({
+        number: parseInt(num),
+        frequency: freq,
+        percentage: ((freq / combinations.size) * 100).toFixed(1)
+      }))
+      .filter(item => item.frequency > 0)
+      .sort((a, b) => b.frequency - a.frequency);
+    
+    // Get top numbers
+    const topNumbers = frequencyData.slice(0, 10).map(item => item.number);
+    
+    console.log('Top 10 numbers:', topNumbers.join(', '));
+    console.log('=== AUTOMATION END ===\n');
+    
     res.json({
       success: true,
-      results: {
-        topNumbers,
-        iterations: multiplier,
-        frequencyData: Object.entries(finalFrequency)
-          .map(([num, freq]) => ({ number: parseInt(num), frequency: freq }))
-          .sort((a, b) => b.frequency - a.frequency),
-        metadata: {
-          totalIterations: multiplier,
-          successfulIterations: multiplier,
-          timestamp: new Date().toISOString(),
-          period
-        }
+      totalIterations: iterations,
+      uniqueCombinations: combinations.size,
+      topNumbers,
+      frequencyData,
+      metadata: {
+        totalIterations: iterations,
+        uniqueCombinations: combinations.size,
+        successfulIterations: combinations.size,
+        timestamp: new Date().toISOString(),
+        period,
+        gameType,
+        analysisSource: frequency.totalDraws > 0 ? 'database' : 'random'
       }
     });
   } catch (error) {
@@ -672,7 +741,7 @@ router.post('/:gameType/automation', async (req, res) => {
       error: error.message
     });
   }
-});
+}); // ← THIS WAS MISSING!
 
 // GET /api/predictions/history
 router.get('/history', async (req, res) => {

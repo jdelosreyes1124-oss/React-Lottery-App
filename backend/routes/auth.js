@@ -26,7 +26,7 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    const isValid = await user.validatePassword(password);
+   const isValid = await bcrypt.compare(password, user.password);
     
     if (!isValid) {
       console.log('Invalid password for user:', username);

@@ -68,7 +68,7 @@ const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ period, multiplier })
+      body: JSON.stringify({ period, iterations: multiplier })
     }).then(res => res.json()),
   
   getHistoricalResults: (gameType) =>
@@ -2746,16 +2746,27 @@ function App() {
     }
   };
  
-  const handleRunAutomation = async (gameType) => {
-    setIsAutomationRunning(true);
-    setError(null);
+const handleRunAutomation = async (gameType) => {
+  setIsAutomationRunning(true);
+  setError(null);
 
-    try {
-      const multiplier = selectedMultipliers[gameType] || 1;
-      const result = await api.automation(gameType, '1month', multiplier);
+  try {
+    const multiplier = selectedMultipliers[gameType] || 1;
+    // Change this line:
+    const result = await api.automation(gameType, '1month', multiplier);
       
-      if (result.success) {
-        setAutomationResults(prev => ({ ...prev, [gameType]: result.results }));
+     if (result.success) {
+  setAutomationResults(prev => ({ 
+    ...prev, 
+    [gameType]: {
+      topNumbers: result.topNumbers,
+      iterations: result.totalIterations || result.iterations,
+      allResults: [],
+      frequencyData: result.frequencyData,
+      metadata: result.metadata
+    }
+  }));
+
       } else {
         const mockResults = generateMockAutomation(gameType, multiplier);
         setAutomationResults(prev => ({ ...prev, [gameType]: mockResults }));
