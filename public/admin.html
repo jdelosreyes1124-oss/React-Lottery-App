@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Admin Panel - Excel Update</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script defer src="https://unpkg.com/vue@3.4.27/dist/vue.global.prod.js"></script>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#f6f7fb; margin:0; }
+    .container { max-width: 900px; margin: 32px auto; padding: 0 16px; }
+    .grid { display: grid; gap: 16px; }
+    .card { background:#fff; border-radius:12px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); padding:24px; }
+    .title { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+    .muted { color:#475569 }
+    .danger { color:#dc2626 }
+    .space { height: 12px }
+    .row { display:flex; gap:12px; align-items:center; flex-wrap: wrap; }
+    input, .file { border: 1px solid #e5e7eb; border-radius: 10px; padding:10px 12px; outline: none; }
+    .btn { background:#2563eb; color:#fff; border:none; padding:10px 16px; border-radius:10px; cursor:pointer; }
+    .btn:hover { background:#1e40af; }
+    code { background:#f1f5f9; padding:2px 6px; border-radius:6px; }
+  </style>
+  <script>
+      window.ADMIN_API_BASE = 'http://localhost:5001/api';
+    // Optional override (e.g., window.ADMIN_API_BASE='http://localhost:5001/api')
+    window.ADMIN_API_BASE = window.ADMIN_API_BASE || '/api';
+async function getJson(path, init) {
+    const url = path.startsWith('http')
+      ? path
+      : `${window.ADMIN_API_BASE}${path.startsWith('/') ? path : '/' + path}`;
+
+    const res = await fetch(url, {
+      ...init,
+      headers: { Accept: 'application/json', ...(init?.headers || {}) },
+    });
+
+    const ct = res.headers.get('content-type') || '';
+    const text = await res.text();
+
+    if (!res.ok || !ct.includes('application/json')) {
+      console.error('[getJson] Non-JSON response', {
+        url,
+        status: res.status,
+        contentType: ct,
+        preview: text.slice(0, 200)
+      });
+      throw new Error(`Expected JSON, got ${res.status} ${ct}`);
+    }
+    return JSON.parse(text);
+  
+    }
+
+    async function postJson(path, body, headers={}) {
+      return getJson(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify(body),
+      });
+    }
+  </script>
+</head>
+<body>
+  <div id="app" class="container">
+    <div class="grid">
+      <!-- Login Card -->
+      <div class="card">
+        <div class="title">Admin Login</div>
+        <div class="space"></div>
+        <div class="row">
+          <input v-model="username" type="text" placeholder="Username">
+          <input v-model="password" type="password" placeholder="Password">
+          <button class="btn" @click="login">Login</button>
+        </div>
+        <div class="space"></div>
+        <div class="muted">Status:
+          <span :class="isLoggedIn ? '' : 'danger'">{{ isLoggedIn ? 'Logged in' : 'Logged out' }}</span>
+        </div>
+        <div v-if="error" class="danger">{{ error }}</div>
+      </div>
+
+      <!-- Excel Info -->
+      <div class="card" v-if="isLoggedIn">
+        <div class="title">Excel Info</div>
+        <div class="muted" v-if="!excelInfo.exists">No Excel file uploaded yet.</div>
+        <div v-else>
+          <div><strong>Exists:</strong> {{ excelInfo.exists }}</div>
+          <div v-if="excelInfo.info">
+            <div><strong>Sheets:</strong> {{ excelInfo.info.sheets?.join(', ') || 'n/a' }}</div>
+            <div><strong>Updated:</strong> {{ excelInfo.info.updated || 'n/a' }}</div>
+          </div>
+        </div>
+        <div class="space"></div>
+        <button class="btn" @click="loadExcelInfo">Refresh</button>
+      </div>
+
+      <!-- Upload Excel -->
+      <div class="card" v-if="isLoggedIn">
+        <div class="title">Upload Excel</div>
+        <div class="row">
+          <input class="file" type="file" ref="file" accept=".xlsx,.xls">
+          <button class="btn" @click="uploadExcel">Upload</button>
+        </div>
+      </div>
+
+      <!-- Logout -->
+      <div class="card" v-if="isLoggedIn">
+        <div class="title">Session</div>
+        <div class="row">
+          <button class="btn" @click="logout">Log out</button>
+          <span class="muted">Token stored in <code>localStorage</code> as <code>adm_token</code></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { createApp } = Vue;
+
+    createApp({
+      data() {
+        return {
+          username: '',
+          password: '',
+          token: localStorage.getItem('adm_token') || '',
+          isLoggedIn: !!localStorage.getItem('adm_token'),
+          error: '',
+          excelInfo: { exists: false, info: null },
+        };
+      },
+      methods: {
+        async login() {
+          this.error = '';
+          try {
+            const data = await postJson('/admin/login', {
+              username: this.username,
+              password: this.password
+            });
+            if (!data?.token) throw new Error('No token received');
+            this.token = data.token;
+            localStorage.setItem('adm_token', this.token);
+            this.isLoggedIn = true;
+            this.username = '';
+            this.password = '';
+            await this.postLoginSetup();
+          } catch (e) {
+            this.error = e.message || 'Login failed';
+          }
+        },
+        async postLoginSetup() {
+          await this.loadExcelInfo();
+        },
+        async loadExcelInfo() {
+          this.error = '';
+          try {
+            const data = await getJson('/admin/excel-info', {
+              headers: { Authorization: `Bearer ${this.token}` }
+            });
+            this.excelInfo = data;
+          } catch (e) {
+            this.error = e.message || 'Failed to load Excel info';
+          }
+        },
+        async uploadExcel() {
+          this.error = '';
+          const f = this.$refs.file?.files?.[0];
+          if (!f) { alert('Choose a file first'); return; }
+
+          try {
+            const url = `${window.ADMIN_API_BASE}/admin/upload-excel`;
+            const fd = new FormData();
+            fd.append('file', f);
+
+            const resp = await fetch(url, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${this.token}` },
+              body: fd
+            });
+
+            // For upload route, just try to parse JSON but still guard when HTML happens
+            const ct = resp.headers.get('content-type') || '';
+            const text = await resp.text();
+            if (!resp.ok || !ct.includes('application/json')) {
+              throw new Error(`Upload failed: ${resp.status} ${ct}\n${text.slice(0, 400)}`);
+            }
+            const data = JSON.parse(text);
+            alert(data?.message || 'Upload success');
+            await this.loadExcelInfo();
+          } catch (e) {
+            alert('Upload error: ' + e.message);
+          }
+        },
+        logout() {
+          localStorage.removeItem('adm_token');
+          this.token = '';
+          this.isLoggedIn = false;
+        }
+      },
+      async mounted() {
+        if (this.isLoggedIn) {
+          await this.postLoginSetup();
+        }
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
