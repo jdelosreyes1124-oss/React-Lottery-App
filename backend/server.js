@@ -11,7 +11,7 @@ const mongoose = require('mongoose');
 // Import MongoDB models
 const db = require('./models_mongoose');
 
-// Import routes (these will need updating too)
+// Import routes
 const predictionRoutes = require('./routes/predictions');
 const adminRoutes = require('./routes/admin');
 const authRoutes = require('./routes/auth');
@@ -44,10 +44,30 @@ app.use(helmet({
 }));
 app.use(compression());
 
-// CORS configuration
+// CORS configuration - Allow multiple origins including all Vercel deployments
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'https://react-lottery-app-qber.vercel.app',
+  process.env.FRONTEND_URL
+].filter(Boolean); // Remove any undefined values
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: function(origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    // Check if origin is in allowed list OR matches Vercel pattern
+    if (allowedOrigins.indexOf(origin) !== -1 || origin.match(/\.vercel\.app$/)) {
+      callback(null, true);
+    } else {
+      console.log('❌ CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   optionsSuccessStatus: 200
 }));
 
@@ -77,7 +97,7 @@ app.use(session({
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: 'lax'
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
   }
 }));
 
@@ -105,7 +125,11 @@ app.get('/api/health', async (req, res) => {
     // Get document counts
     const stats = {};
     for (const collection of ['users', 'lottery_results', 'predictions', 'scheduler_jobs', 'admin_logs']) {
-      stats[collection] = await mongoose.connection.db.collection(collection).countDocuments();
+      try {
+        stats[collection] = await mongoose.connection.db.collection(collection).countDocuments();
+      } catch (err) {
+        stats[collection] = 0;
+      }
     }
     
     res.json({
@@ -221,6 +245,7 @@ async function startServer() {
       console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`☁️  Database: MongoDB Atlas - ${process.env.MONGODB_DB}`);
+      console.log(`🔐 CORS enabled for: ${allowedOrigins.join(', ')} + all *.vercel.app`);
       console.log('=====================================');
     });
   } catch (error) {
