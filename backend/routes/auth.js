@@ -1,19 +1,14 @@
-// ============================================
-// routes/auth.js - Complete Authentication Routes File
-// ============================================
 const express = require('express');
 const router = express.Router();
 const dbService = require('../services/databaseService');
+const bcrypt = require('bcryptjs');
 
-// ============================================
 // POST /api/auth/login
-// ============================================
 router.post('/login', async (req, res) => {
   try {
     console.log('Login attempt:', req.body.username);
     const { username, password } = req.body;
 
-    // Validate input
     if (!username || !password) {
       return res.status(400).json({
         success: false,
@@ -21,7 +16,6 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Find user in database
     const user = await dbService.findUserByUsername(username);
 
     if (!user) {
@@ -32,7 +26,6 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Validate password
     const isValid = await user.validatePassword(password);
     
     if (!isValid) {
@@ -43,23 +36,20 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Update last login timestamp
-    await dbService.updateUserLogin(user.id);
+    await dbService.updateUserLogin(user._id);
 
-    // Set session
     req.session.user = {
-      id: user.id,
+      id: user._id,
       username: user.username,
       role: user.role
     };
 
     console.log('Login successful for:', username);
 
-    // Send response
     res.json({
       success: true,
       user: {
-        id: user.id,
+        id: user._id,
         username: user.username,
         role: user.role
       }
@@ -73,9 +63,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ============================================
 // POST /api/auth/logout
-// ============================================
 router.post('/logout', (req, res) => {
   const username = req.session?.user?.username;
   
@@ -96,9 +84,7 @@ router.post('/logout', (req, res) => {
   });
 });
 
-// ============================================
 // GET /api/auth/verify
-// ============================================
 router.get('/verify', (req, res) => {
   console.log('Verify session:', req.session?.user?.username);
   
@@ -114,14 +100,11 @@ router.get('/verify', (req, res) => {
   }
 });
 
-// ============================================
 // POST /api/auth/register
-// ============================================
 router.post('/register', async (req, res) => {
   try {
     const { username, email, password, confirmPassword } = req.body;
 
-    // Validate input
     if (!username || !password) {
       return res.status(400).json({
         success: false,
@@ -129,7 +112,6 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Check password confirmation
     if (confirmPassword && password !== confirmPassword) {
       return res.status(400).json({
         success: false,
@@ -137,7 +119,6 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Check username length 
     if (username.length < 3 || username.length > 50) {
       return res.status(400).json({
         success: false,
@@ -145,7 +126,6 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Check if username already exists a
     const existing = await dbService.findUserByUsername(username);
     if (existing) {
       return res.status(400).json({
@@ -154,12 +134,14 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Create new user 
+    // Hash password before saving
+    const hashedPassword = await bcrypt.hash(password, 10);
+
     const user = await dbService.createUser({
       username,
       email: email || null,
-      password,
-      role: 'user' // Default role 
+      password: hashedPassword,
+      role: 'user'
     });
 
     console.log('New user registered:', username);
@@ -168,7 +150,7 @@ router.post('/register', async (req, res) => {
       success: true,
       message: 'User registered successfully',
       user: {
-        id: user.id,
+        id: user._id,
         username: user.username
       }
     });
@@ -181,12 +163,9 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// ============================================
 // POST /api/auth/change-password
-// ============================================
 router.post('/change-password', async (req, res) => {
   try {
-    // Check if user is logged in
     if (!req.session || !req.session.user) {
       return res.status(401).json({
         success: false,
@@ -196,7 +175,6 @@ router.post('/change-password', async (req, res) => {
 
     const { currentPassword, newPassword, confirmPassword } = req.body;
 
-    // Validate input
     if (!currentPassword || !newPassword) {
       return res.status(400).json({
         success: false,
@@ -204,7 +182,6 @@ router.post('/change-password', async (req, res) => {
       });
     }
 
-    // Check password confirmation
     if (confirmPassword && newPassword !== confirmPassword) {
       return res.status(400).json({
         success: false,
@@ -212,7 +189,6 @@ router.post('/change-password', async (req, res) => {
       });
     }
 
-    // Get user from database
     const user = await dbService.findUserById(req.session.user.id);
     if (!user) {
       return res.status(404).json({
@@ -221,7 +197,6 @@ router.post('/change-password', async (req, res) => {
       });
     }
 
-    // Validate current password 
     const isValid = await user.validatePassword(currentPassword);
     if (!isValid) {
       return res.status(401).json({
@@ -230,8 +205,9 @@ router.post('/change-password', async (req, res) => {
       });
     }
 
-    // Update password
-    await user.update({ password: newPassword });
+    // Hash new password
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
 
     console.log('Password changed for user:', user.username);
 
@@ -248,12 +224,9 @@ router.post('/change-password', async (req, res) => {
   }
 });
 
-// ============================================
 // GET /api/auth/profile
-// ============================================
 router.get('/profile', async (req, res) => {
   try {
-    // Check if user is logged in
     if (!req.session || !req.session.user) {
       return res.status(401).json({
         success: false,
@@ -261,7 +234,6 @@ router.get('/profile', async (req, res) => {
       });
     }
 
-    // Get user from database
     const user = await dbService.findUserById(req.session.user.id);
     if (!user) {
       return res.status(404).json({
@@ -273,12 +245,12 @@ router.get('/profile', async (req, res) => {
     res.json({
       success: true,
       user: {
-        id: user.id,
+        id: user._id,
         username: user.username,
         email: user.email,
         role: user.role,
-        lastLogin: user.last_login,
-        createdAt: user.created_at
+        lastLogin: user.lastLogin,
+        createdAt: user.createdAt
       }
     });
   } catch (error) {

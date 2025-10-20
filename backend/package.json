@@ -6,13 +6,15 @@
   "type": "commonjs",
   "scripts": {
     "dev": "nodemon server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "build": "echo 'No build step required'"
   },
   "dependencies": {
     "axios": "^1.12.2",
     "bcryptjs": "^2.4.3",
     "cheerio": "^1.1.2",
     "compression": "^1.8.1",
+    "connect-mongo": "^5.1.0",
     "connect-session-sequelize": "^8.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
@@ -21,6 +23,8 @@
     "express-session": "^1.18.2",
     "helmet": "^7.2.0",
     "jsonwebtoken": "^9.0.2",
+    "mongodb": "^6.20.0",
+    "mongoose": "^8.19.1",
     "morgan": "^1.10.1",
     "multer": "^1.4.5-lts.1",
     "mysql2": "^3.15.2",
@@ -28,11 +32,14 @@
     "node-fetch": "^3.3.2",
     "pg": "^8.16.3",
     "pg-hstore": "^2.3.4",
-    "puppeteer": "^24.23.0",
+    "puppeteer": "^24.25.0",
     "sequelize": "^6.37.7",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"
+  },
+   "engines": {
+    "node": ">=18.0.0"
   }
 }

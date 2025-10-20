@@ -1,5 +1,6 @@
 /**
  * Web Scraper Service for Hong Kong Mark Six
+ * Updated for Render.com deployment
  * services/scraperMark6.js
  */
 
@@ -36,10 +37,27 @@ class Mark6ScraperService {
   }
 
   async launchBrowser() {
-    return await puppeteer.launch({
+    const args = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-zygote',
+      '--disable-extensions'
+    ];
+    
+    // For production (Render), use system Chrome
+    const options = {
       headless: this.headless,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-    });
+      args: args
+    };
+    
+    if (process.env.NODE_ENV === 'production' || process.env.PUPPETEER_EXECUTABLE_PATH) {
+      options.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
+    }
+    
+    return await puppeteer.launch(options);
   }
 
   async createPage(browser) {

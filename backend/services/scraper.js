@@ -1,9 +1,7 @@
 /**
  * Web Scraper Service for Taiwan Daily Cash 539 (History Page)
- * Fixed to correctly parse the "Winning No." column
- * 
- * INSTALLATION:
- * npm install puppeteer
+ * Updated for Render.com deployment
+ * services/scraper.js
  */
 
 const puppeteer = require('puppeteer');
@@ -40,10 +38,27 @@ class LotteryScraperService {
   }
 
   async launchBrowser() {
-    return await puppeteer.launch({
+    const args = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-zygote',
+      '--disable-extensions'
+    ];
+    
+    // For production (Render), use system Chrome
+    const options = {
       headless: this.headless,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-    });
+      args: args
+    };
+    
+    if (process.env.NODE_ENV === 'production' || process.env.PUPPETEER_EXECUTABLE_PATH) {
+      options.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
+    }
+    
+    return await puppeteer.launch(options);
   }
 
   async createPage(browser) {

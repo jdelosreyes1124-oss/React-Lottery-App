@@ -5,9 +5,13 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
 const session = require('express-session');
-const SequelizeStore = require('connect-session-sequelize')(session.Store);
+const MongoStore = require('connect-mongo');
+const mongoose = require('mongoose');
 
-const db = require('./models');
+// Import MongoDB models
+const db = require('./models_mongoose');
+
+// Import routes (these will need updating too)
 const predictionRoutes = require('./routes/predictions');
 const adminRoutes = require('./routes/admin');
 const authRoutes = require('./routes/auth');
@@ -15,13 +19,20 @@ const authRoutes = require('./routes/auth');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Create session store
-const sessionStore = new SequelizeStore({
-  db: db.sequelize,
-  tableName: 'sessions',
-  checkExpirationInterval: 15 * 60 * 1000, // Cleanup expired sessions every 15 minutes
-  expiration: 24 * 60 * 60 * 1000  // 24 hours
-});
+// ============================================
+// DATABASE CONNECTION
+// ============================================
+let mongoUri = process.env.MONGODB_URI;
+if (!mongoUri.endsWith('/')) mongoUri += '/';
+mongoUri += process.env.MONGODB_DB;
+
+// Connect to MongoDB
+mongoose.connect(mongoUri)
+  .then(() => console.log('✅ MongoDB Atlas connected'))
+  .catch(err => {
+    console.error('❌ MongoDB connection error:', err);
+    process.exit(1);
+  });
 
 // ============================================
 // MIDDLEWARE
@@ -29,7 +40,7 @@ const sessionStore = new SequelizeStore({
 
 // Security middleware
 app.use(helmet({
-  contentSecurityPolicy: false, // Disable if causing issues with frontend
+  contentSecurityPolicy: false,
 }));
 app.use(compression());
 
@@ -51,22 +62,24 @@ if (process.env.NODE_ENV === 'development') {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Session middleware with database store
+// Session middleware with MongoDB store
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key-change-in-production',
-  store: sessionStore,
+  store: MongoStore.create({
+    mongoUrl: mongoUri,
+    collectionName: 'sessions',
+    ttl: 24 * 60 * 60, // 24 hours
+    autoRemove: 'native'
+  }),
   resave: false,
   saveUninitialized: false,
   cookie: { 
-    secure: process.env.NODE_ENV === 'production', // true in production with HTTPS
+    secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     sameSite: 'lax'
   }
 }));
-
-// Create session table
-sessionStore.sync();
 
 // ============================================
 // ROUTES
@@ -78,15 +91,29 @@ app.use('/api/admin', adminRoutes);
 // Health check endpoint 
 app.get('/api/health', async (req, res) => {
   try {
-    await db.sequelize.authenticate();
-    const dbVersion = await db.sequelize.query('SELECT version()');
-    const stats = await db.sequelize.query('SELECT COUNT(*) as tables FROM information_schema.tables WHERE table_schema = current_schema()');
+    const dbState = mongoose.connection.readyState;
+    const states = {
+      0: 'disconnected',
+      1: 'connected',
+      2: 'connecting',
+      3: 'disconnecting'
+    };
+    
+    // Get collection stats
+    const collections = await mongoose.connection.db.listCollections().toArray();
+    
+    // Get document counts
+    const stats = {};
+    for (const collection of ['users', 'lottery_results', 'predictions', 'scheduler_jobs', 'admin_logs']) {
+      stats[collection] = await mongoose.connection.db.collection(collection).countDocuments();
+    }
     
     res.json({
       status: 'healthy',
-      database: 'connected',
-      dbVersion: dbVersion[0][0].version,
-      tableCount: parseInt(stats[0][0].tables),
+      database: states[dbState],
+      dbName: mongoose.connection.name,
+      collections: collections.length,
+      documents: stats,
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       version: '2.0.0',
@@ -95,7 +122,7 @@ app.get('/api/health', async (req, res) => {
   } catch (error) {
     res.status(500).json({
       status: 'unhealthy',
-      database: 'disconnected',
+      database: 'error',
       error: error.message
     });
   }
@@ -106,6 +133,7 @@ app.get('/api', (req, res) => {
   res.json({
     name: 'Lottery Prediction API',
     version: '2.0.0',
+    database: 'MongoDB Atlas',
     endpoints: {
       auth: '/api/auth',
       predictions: '/api/predictions',
@@ -113,6 +141,25 @@ app.get('/api', (req, res) => {
       health: '/api/health'
     }
   });
+});
+
+// Test endpoint for lottery results
+app.get('/api/lottery-results/latest', async (req, res) => {
+  try {
+    const games = ['539', 'mark6', 'lotto649'];
+    const results = {};
+    
+    for (const game of games) {
+      results[game] = await db.LotteryResult
+        .findOne({ gameType: game })
+        .sort({ drawDate: -1 })
+        .lean();
+    }
+    
+    res.json({ success: true, data: results });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // ============================================
@@ -132,18 +179,23 @@ app.use('*', (req, res) => {
 app.use((err, req, res, next) => {
   console.error('Error:', err.stack);
   
-  // Handle specific error types
-  if (err.name === 'SequelizeValidationError') {
+  // Handle specific MongoDB error types
+  if (err.name === 'ValidationError') {
     return res.status(400).json({
       error: 'Validation error',
-      details: err.errors.map(e => ({ field: e.path, message: e.message }))
+      details: Object.values(err.errors).map(e => ({ 
+        field: e.path, 
+        message: e.message 
+      }))
     });
   }
   
-  if (err.name === 'SequelizeUniqueConstraintError') {
+  if (err.code === 11000) { // MongoDB duplicate key error
+    const field = Object.keys(err.keyPattern)[0];
     return res.status(409).json({
       error: 'Duplicate entry',
-      details: err.errors.map(e => ({ field: e.path, message: e.message }))
+      field: field,
+      message: `${field} already exists`
     });
   }
   
@@ -154,19 +206,12 @@ app.use((err, req, res, next) => {
 });
 
 // ============================================
-// DATABASE CONNECTION AND SERVER START
+// SERVER START
 // ============================================
 async function startServer() {
   try {
-    // Test database connection
-    await db.sequelize.authenticate();
-    console.log('✅ Database connection established');
-    
-    // Optional: Sync database (be careful in production!)
-    if (process.env.NODE_ENV === 'development' && process.env.DB_SYNC === 'true') {
-      await db.sequelize.sync({ alter: true });
-      console.log('✅ Database synced');
-    }
+    // Wait for database connection
+    await db.connectDB();
     
     // Start server
     app.listen(PORT, () => {
@@ -175,7 +220,7 @@ async function startServer() {
       console.log(`📊 API available at http://localhost:${PORT}/api`);
       console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`🗄️  Database: ${process.env.DB_NAME}`);
+      console.log(`☁️  Database: MongoDB Atlas - ${process.env.MONGODB_DB}`);
       console.log('=====================================');
     });
   } catch (error) {
@@ -186,14 +231,14 @@ async function startServer() {
 
 // Handle graceful shutdown
 process.on('SIGTERM', async () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  await db.sequelize.close();
+  console.log('SIGTERM signal received: closing connections');
+  await mongoose.connection.close();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-  console.log('SIGINT signal received: closing HTTP server');
-  await db.sequelize.close();
+  console.log('SIGINT signal received: closing connections');
+  await mongoose.connection.close();
   process.exit(0);
 });
 

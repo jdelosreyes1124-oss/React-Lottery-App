@@ -1,34 +1,34 @@
 /**
- * Scheduled Scraper Service
+ * Scheduled Scraper Service - MongoDB Version
+ * This version skips all existing dates to avoid ID type conflicts
  * services/scheduledScraper.js
  */
 
 const cron = require('node-cron');
-const scraper539 = require('./scraper');
-const scraperMark6 = require('./scraperMark6');
-const scraperLotto649 = require('./scraperLotto649');
+const db = require('../models_mongoose');
+const dbService = require('./databaseService');
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-// Configuration
-const EXCEL_PATHS = {
-  '539': path.join(__dirname, '../data/539PAST2025RESULT.xlsx'),
-  'mark6': path.join(__dirname, '../data/MARK6PAST2025RESULT.xlsx'),
-  'lotto649': path.join(__dirname, '../data/LOTTO649PAST2025RESULT.xlsx')
-};
+// Scraper imports
+const scraper539 = require('./scraper');
+const scraperMark6 = require('./scraperMark6');
+const scraperLotto649 = require('./scraperLotto649');
 
-// Backup configuration
+// Backup configuration (now exports from MongoDB to Excel)
+const BACKUP_DIR = path.join(__dirname, '../backups');
 const BACKUP_CONFIG = {
-  maxBackups: 5, // Keep only the last 10 backups per game type
-  autoCleanup: true // Enable automatic cleanup
+  maxBackups: 5,
+  autoCleanup: true,
+  enabled: true
 };
 
 // Scheduler state
 const schedulerState = {
   '539': {
     enabled: false,
-    schedule: '0 */6 * * *', // Every 6 hours by default
+    schedule: '0 */6 * * *',
     lastRun: null,
     nextRun: null,
     task: null,
@@ -37,7 +37,7 @@ const schedulerState = {
   },
   'mark6': {
     enabled: false,
-    schedule: '0 */6 * * *', // Every 6 hours by default
+    schedule: '0 */6 * * *',
     lastRun: null,
     nextRun: null,
     task: null,
@@ -46,7 +46,7 @@ const schedulerState = {
   },
   'lotto649': {
     enabled: false,
-    schedule: '0 */6 * * *', // Every 6 hours by default
+    schedule: '0 */6 * * *',
     lastRun: null,
     nextRun: null,
     task: null,
@@ -58,32 +58,56 @@ const schedulerState = {
 // Helper functions
 function normalizeDate(date) {
   if (!date) return null;
+  
   try {
-    const d = new Date(date);
-    if (isNaN(d.getTime())) return null;
-    return d.toISOString().split('T')[0];
+    let dateObj;
+    
+    // Handle different input types
+    if (date instanceof Date) {
+      dateObj = date;
+    } else if (typeof date === 'string') {
+      // Remove any time component if present
+      const dateOnly = date.split('T')[0];
+      // Handle both YYYY-MM-DD and YYYY/MM/DD formats
+      const normalized = dateOnly.replace(/\//g, '-');
+      // Create date at noon UTC to avoid timezone issues
+      dateObj = new Date(normalized + 'T12:00:00Z');
+    } else {
+      return null;
+    }
+    
+    // Check if valid date
+    if (isNaN(dateObj.getTime())) return null;
+    
+    // Return YYYY-MM-DD format
+    const year = dateObj.getUTCFullYear();
+    const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getUTCDate()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}`;
   } catch (e) {
+    console.error('Error normalizing date:', date, e.message);
     return null;
   }
 }
-
-function formatScrapedResult(result, gameType) {
-  const formatted = { Date: result.date };
-  
-  if (gameType === '539') {
-    for (let i = 0; i < 5; i++) {
-      formatted[`Number ${i + 1}`] = result.numbers[i];
-    }
-  } else if (gameType === 'mark6' || gameType === 'lotto649') {
-    for (let i = 0; i < 6; i++) {
-      formatted[`Number ${i + 1}`] = result.numbers[i];
-    }
-    if (result.bonus) formatted.Bonus = result.bonus;
-  }
-  
-  return formatted;
+async launchBrowser() {
+  return await puppeteer.launch({
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-zygote',
+      '--disable-extensions'
+    ],
+    // Use system Chrome on Render
+    executablePath: process.env.NODE_ENV === 'production' 
+      ? '/usr/bin/google-chrome-stable' 
+      : undefined
+  });
 }
-
 function getScraper(gameType) {
   if (gameType === 'mark6') return scraperMark6;
   if (gameType === 'lotto649') return scraperLotto649;
@@ -91,34 +115,83 @@ function getScraper(gameType) {
 }
 
 /**
- * Clean up old backup files, keeping only the most recent ones
- * @param {string} gameType - The game type ('539' or 'mark6')
- * @param {number} maxBackups - Maximum number of backups to keep
+ * Create Excel backup from MongoDB data
  */
-function cleanupOldBackups(gameType, maxBackups = BACKUP_CONFIG.maxBackups) {
+async function createBackup(gameType) {
   try {
-    const dataDir = path.dirname(EXCEL_PATHS[gameType]);
+    if (!BACKUP_CONFIG.enabled) return null;
     
-    if (!fs.existsSync(dataDir)) {
-      return { deleted: 0, kept: 0 };
+    // Ensure backup directory exists
+    if (!fs.existsSync(BACKUP_DIR)) {
+      fs.mkdirSync(BACKUP_DIR, { recursive: true });
     }
     
-    // Get all backup files for this game type
-    const backupPattern = new RegExp(`^${gameType}-auto-backup-\\d+\\.xlsx$`);
-    const files = fs.readdirSync(dataDir)
+    // Get data from MongoDB
+    const results = await db.LotteryResult
+      .find({ gameType })
+      .sort({ drawDate: -1 })
+      .limit(10000)
+      .lean();
+    
+    if (results.length === 0) {
+      console.log(`📭 No data to backup for ${gameType}`);
+      return null;
+    }
+    
+    // Convert to Excel format
+    const excelData = results.map(r => {
+      const row = { Date: normalizeDate(r.drawDate) || r.drawDate };
+      r.numbers.forEach((num, idx) => {
+        row[`Number ${idx + 1}`] = num;
+      });
+      if (r.bonus) row.Bonus = r.bonus;
+      return row;
+    });
+    
+    // Create workbook
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Results');
+    
+    // Save backup
+    const backupFile = `${gameType}-backup-${Date.now()}.xlsx`;
+    const backupPath = path.join(BACKUP_DIR, backupFile);
+    XLSX.writeFile(workbook, backupPath);
+    
+    console.log(`💾 Backup created: ${backupFile}`);
+    
+    // Clean up old backups
+    if (BACKUP_CONFIG.autoCleanup) {
+      cleanupOldBackups(gameType);
+    }
+    
+    return backupPath;
+  } catch (error) {
+    console.error(`❌ Backup failed for ${gameType}:`, error.message);
+    return null;
+  }
+}
+
+/**
+ * Clean up old backup files
+ */
+function cleanupOldBackups(gameType) {
+  try {
+    if (!fs.existsSync(BACKUP_DIR)) return { deleted: 0, kept: 0 };
+    
+    const backupPattern = new RegExp(`^${gameType}-backup-\\d+\\.xlsx$`);
+    const files = fs.readdirSync(BACKUP_DIR)
       .filter(file => backupPattern.test(file))
       .map(file => ({
         name: file,
-        path: path.join(dataDir, file),
+        path: path.join(BACKUP_DIR, file),
         timestamp: parseInt(file.match(/\d+/)[0])
       }))
-      .sort((a, b) => b.timestamp - a.timestamp); // Sort by timestamp, newest first
+      .sort((a, b) => b.timestamp - a.timestamp);
     
-    // Keep only the most recent backups
-    const toKeep = files.slice(0, maxBackups);
-    const toDelete = files.slice(maxBackups);
+    const toKeep = files.slice(0, BACKUP_CONFIG.maxBackups);
+    const toDelete = files.slice(BACKUP_CONFIG.maxBackups);
     
-    // Delete old backups
     let deletedCount = 0;
     toDelete.forEach(file => {
       try {
@@ -126,27 +199,25 @@ function cleanupOldBackups(gameType, maxBackups = BACKUP_CONFIG.maxBackups) {
         console.log(`🗑️  Deleted old backup: ${file.name}`);
         deletedCount++;
       } catch (err) {
-        console.error(`❌ Failed to delete backup ${file.name}:`, err.message);
+        console.error(`Failed to delete ${file.name}:`, err.message);
       }
     });
     
-    console.log(`📦 Backup cleanup for ${gameType.toUpperCase()}: ${deletedCount} deleted, ${toKeep.length} kept`);
-    
-    return {
-      deleted: deletedCount,
-      kept: toKeep.length,
-      totalBefore: files.length
-    };
-    
+    return { deleted: deletedCount, kept: toKeep.length };
   } catch (error) {
-    console.error(`❌ Backup cleanup failed for ${gameType.toUpperCase()}:`, error.message);
-    return { deleted: 0, kept: 0, error: error.message };
+    console.error(`Cleanup failed for ${gameType}:`, error.message);
+    return { deleted: 0, kept: 0 };
   }
 }
 
-// Main scraping function
+/**
+ * Main scraping function - Skips all existing dates to avoid ID conflicts
+ */
 async function runScheduledScrape(gameType) {
-  console.log(`\n🤖 [Scheduled] Starting automatic scrape for ${gameType.toUpperCase()}...`);
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`🤖 [Scheduled] Starting automatic scrape for ${gameType.toUpperCase()}`);
+  console.log(`📅 Current time: ${new Date().toISOString()}`);
+  console.log(`${'='.repeat(60)}\n`);
   
   const state = schedulerState[gameType];
   state.status = 'running';
@@ -154,118 +225,189 @@ async function runScheduledScrape(gameType) {
   
   try {
     const scraper = getScraper(gameType);
-    const maxResults = 50; // Fetch last 50 results
+    const maxResults = 50;
     
+    // Step 1: Scrape results
+    console.log(`📡 STEP 1: Scraping ${gameType.toUpperCase()} results...`);
     const scrapedResults = await scraper.scrapeResults(maxResults);
     
+    console.log(`\n🔍 Scraped Results Summary:`);
+    console.log(`   Total scraped: ${scrapedResults.length}`);
+    
     if (scrapedResults.length === 0) {
-      throw new Error('No results scraped');
+      throw new Error('No results scraped from website');
     }
     
+    // Show first and last scraped results
+    if (scrapedResults.length > 0) {
+      console.log(`   First result: ${scrapedResults[0].date} - [${scrapedResults[0].numbers.join(', ')}]`);
+      console.log(`   Last result: ${scrapedResults[scrapedResults.length - 1].date} - [${scrapedResults[scrapedResults.length - 1].numbers.join(', ')}]`);
+    }
+    
+    // Step 2: Validate scraped results
     const validation = scraper.validateResults(scrapedResults);
+    console.log(`\n✅ Validation Results:`, validation);
     
     if (validation.valid === 0) {
-      throw new Error('No valid results found');
+      throw new Error('No valid results found after validation');
     }
     
-    // Update Excel file
-    const EXCEL_DATA_PATH = EXCEL_PATHS[gameType];
-    let workbook;
+    // Step 3: Get ALL existing dates from database (regardless of ID type)
+    console.log(`\n📊 STEP 2: Checking database...`);
+    const existingCount = await db.LotteryResult.countDocuments({ gameType });
+    console.log(`   Current records in database: ${existingCount}`);
     
-    if (fs.existsSync(EXCEL_DATA_PATH)) {
-      workbook = XLSX.readFile(EXCEL_DATA_PATH);
-    } else {
-      workbook = XLSX.utils.book_new();
-    }
+    // Get all existing dates for this game type
+    const existingRecords = await db.LotteryResult
+      .find({ gameType })
+      .select('drawDate')
+      .lean();
     
-    const sheetName = 'Results';
-    let existingData = [];
+    // Create a Set of existing dates (normalized to YYYY-MM-DD format)
+    const existingDates = new Set();
+    existingRecords.forEach(record => {
+      const normalizedDate = normalizeDate(record.drawDate);
+      if (normalizedDate) {
+        existingDates.add(normalizedDate);
+      }
+    });
     
-    if (workbook.SheetNames.includes(sheetName)) {
-      const worksheet = workbook.Sheets[sheetName];
-      existingData = XLSX.utils.sheet_to_json(worksheet);
-    }
+    console.log(`   Found ${existingDates.size} unique dates in database`);
     
-    const existingDates = new Set(
-      existingData.map(row => normalizeDate(row.Date)).filter(Boolean)
-    );
+    // Step 4: Process ONLY NEW dates (skip all existing)
+    console.log(`\n🔄 STEP 3: Processing scraped results...`);
     
     let addedCount = 0;
     let skippedCount = 0;
+    let errorCount = 0;
     const expectedNumberCount = gameType === '539' ? 5 : 6;
+    const newDates = [];
     
-    scrapedResults.forEach(result => {
+    for (let i = 0; i < scrapedResults.length; i++) {
+      const result = scrapedResults[i];
+      
+      // Validate number count
       if (!result.numbers || result.numbers.length !== expectedNumberCount) {
+        console.log(`   ⚠️ Invalid number count for result ${i + 1}`);
+        errorCount++;
+        continue;
+      }
+      
+      // Normalize the scraped date
+      const scrapedDateNorm = normalizeDate(result.date);
+      
+      if (!scrapedDateNorm) {
+        console.log(`   ⚠️ Invalid date format: ${result.date}`);
+        errorCount++;
+        continue;
+      }
+      
+      // SKIP if this date already exists in database
+      if (existingDates.has(scrapedDateNorm)) {
         skippedCount++;
-        return;
+        // Only log first few skips to avoid spam
+        if (skippedCount <= 3) {
+          console.log(`   ⏭️ Skipping existing date: ${scrapedDateNorm}`);
+        }
+        continue;
       }
       
-      const normalizedDate = normalizeDate(result.date);
-      
-      if (existingDates.has(normalizedDate)) {
-        skippedCount++;
-        return;
-      }
-      
-      existingData.push(formatScrapedResult(result, gameType));
-      addedCount++;
-    });
-    
-    // Sort by date (newest first)
-    existingData.sort((a, b) => {
-      const dateA = new Date(a.Date || 0);
-      const dateB = new Date(b.Date || 0);
-      return dateB - dateA;
-    });
-    
-    const newWorksheet = XLSX.utils.json_to_sheet(existingData);
-    
-    if (workbook.SheetNames.includes(sheetName)) {
-      workbook.Sheets[sheetName] = newWorksheet;
-    } else {
-      XLSX.utils.book_append_sheet(workbook, newWorksheet, sheetName);
-    }
-    
-    // Create backup before saving
-    const dataDir = path.dirname(EXCEL_DATA_PATH);
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
-    
-    let backupInfo = null;
-    if (fs.existsSync(EXCEL_DATA_PATH)) {
-      const backupPath = path.join(dataDir, `${gameType}-auto-backup-${Date.now()}.xlsx`);
-      fs.copyFileSync(EXCEL_DATA_PATH, backupPath);
-      console.log(`💾 Backup created: ${path.basename(backupPath)}`);
-      
-      // Clean up old backups if auto-cleanup is enabled
-      if (BACKUP_CONFIG.autoCleanup) {
-        backupInfo = cleanupOldBackups(gameType, BACKUP_CONFIG.maxBackups);
+      // This is a NEW date - try to save it
+      try {
+        const dataToSave = {
+          gameType: gameType,
+          drawDate: scrapedDateNorm,
+          numbers: result.numbers.sort((a, b) => a - b),
+          bonus: result.bonus || null,
+          source: 'web_scraper'
+        };
+        
+        const savedResult = await dbService.addLotteryResult(dataToSave);
+        
+        if (savedResult) {
+          console.log(`   ✅ Added NEW: ${scrapedDateNorm} - [${result.numbers.join(', ')}]`);
+          addedCount++;
+          newDates.push(scrapedDateNorm);
+          // Add to existing dates set to prevent duplicates in same run
+          existingDates.add(scrapedDateNorm);
+        } else {
+          console.log(`   ❌ Failed to save new date: ${scrapedDateNorm}`);
+          errorCount++;
+        }
+        
+      } catch (err) {
+        // Only log actual save errors, not ID generation errors for existing dates
+        if (!err.message.includes('Cast to Number failed')) {
+          console.error(`   ❌ Error saving ${scrapedDateNorm}: ${err.message}`);
+        }
+        errorCount++;
       }
     }
     
-    XLSX.writeFile(workbook, EXCEL_DATA_PATH);
+    // Step 5: Create backup
+    console.log(`\n💾 STEP 4: Creating backup...`);
+    const backupPath = await createBackup(gameType);
     
+    // Step 6: Record scheduler run
+    const success = addedCount > 0 || skippedCount > 0;
+    await dbService.recordSchedulerRun(gameType, success, addedCount);
+    
+    // Get final count
+    const finalCount = await db.LotteryResult.countDocuments({ gameType });
+    
+    // Prepare result summary
     const result = {
       success: true,
       scraped: scrapedResults.length,
       added: addedCount,
       skipped: skippedCount,
-      total: existingData.length,
+      errors: errorCount,
+      total: finalCount,
       validation,
-      backupCleanup: backupInfo,
+      backup: backupPath ? path.basename(backupPath) : null,
       timestamp: new Date().toISOString()
     };
     
+    // Update state
     state.status = 'idle';
     state.lastResult = result;
     
-    console.log(`✅ [Scheduled] ${gameType.toUpperCase()} scrape complete: ${addedCount} added, ${skippedCount} skipped`);
+    // Final summary
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`📈 SCRAPE SUMMARY for ${gameType.toUpperCase()}:`);
+    console.log(`   ✅ NEW records added: ${addedCount}`);
+    if (addedCount > 0 && newDates.length <= 10) {
+      console.log(`   📅 New dates: ${newDates.join(', ')}`);
+    }
+    console.log(`   ⏭️ Existing dates skipped: ${skippedCount}`);
+    console.log(`   ⚠️ Errors: ${errorCount}`);
+    console.log(`   📊 Total in database: ${finalCount}`);
+    
+    if (backupPath) {
+      console.log(`   💾 Backup saved: ${path.basename(backupPath)}`);
+    }
+    
+    // User-friendly message
+    if (addedCount === 0 && skippedCount > 0) {
+      console.log(`\n   ℹ️ No new lottery draws found. All ${skippedCount} results already exist in database.`);
+    } else if (addedCount > 0) {
+      console.log(`\n   🎉 Found ${addedCount} new lottery draw(s)!`);
+    }
+    
+    console.log(`${'='.repeat(60)}\n`);
     
     return result;
     
   } catch (error) {
-    console.error(`❌ [Scheduled] ${gameType.toUpperCase()} scrape failed:`, error.message);
+    console.error(`\n❌ [Scheduled] ${gameType.toUpperCase()} scrape failed:`);
+    console.error(`   Error: ${error.message}`);
+    
+    // Record failure
+    try {
+      await dbService.recordSchedulerRun(gameType, false, 0, error.message);
+    } catch (dbError) {
+      console.error('   Failed to record error in DB:', dbError.message);
+    }
     
     const result = {
       success: false,
@@ -276,11 +418,15 @@ async function runScheduledScrape(gameType) {
     state.status = 'error';
     state.lastResult = result;
     
+    console.log(`${'='.repeat(60)}\n`);
+    
     return result;
   }
 }
 
-// Start scheduler for a game type
+/**
+ * Start scheduler for a game type
+ */
 function startScheduler(gameType, schedule = '0 */6 * * *') {
   if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
     throw new Error('Invalid game type');
@@ -288,17 +434,14 @@ function startScheduler(gameType, schedule = '0 */6 * * *') {
   
   const state = schedulerState[gameType];
   
-  // Stop existing task if running
   if (state.task) {
     state.task.stop();
   }
   
-  // Validate cron expression
   if (!cron.validate(schedule)) {
     throw new Error('Invalid cron expression');
   }
   
-  // Create new cron task
   state.task = cron.schedule(schedule, async () => {
     await runScheduledScrape(gameType);
   });
@@ -307,13 +450,12 @@ function startScheduler(gameType, schedule = '0 */6 * * *') {
   state.schedule = schedule;
   state.status = 'idle';
   
-  // Calculate next run
+  // Calculate next run time
   const cronTime = cron.schedule(schedule, () => {});
-  state.nextRun = cronTime.nextDate().toISOString();
+  state.nextRun = new Date();
   cronTime.stop();
   
   console.log(`✅ Scheduler started for ${gameType.toUpperCase()} - Schedule: ${schedule}`);
-  console.log(`   Next run: ${state.nextRun}`);
   
   return {
     success: true,
@@ -323,7 +465,9 @@ function startScheduler(gameType, schedule = '0 */6 * * *') {
   };
 }
 
-// Stop scheduler
+/**
+ * Stop scheduler
+ */
 function stopScheduler(gameType) {
   if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
     throw new Error('Invalid game type');
@@ -348,7 +492,9 @@ function stopScheduler(gameType) {
   };
 }
 
-// Get scheduler status
+/**
+ * Get scheduler status
+ */
 function getSchedulerStatus(gameType = null) {
   if (gameType) {
     if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
@@ -360,7 +506,9 @@ function getSchedulerStatus(gameType = null) {
   return schedulerState;
 }
 
-// Manual trigger
+/**
+ * Manual trigger
+ */
 async function triggerManualScrape(gameType) {
   if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
     throw new Error('Invalid game type');
@@ -370,52 +518,58 @@ async function triggerManualScrape(gameType) {
   return await runScheduledScrape(gameType);
 }
 
-// Get backup configuration
-function getBackupConfig() {
-  return { ...BACKUP_CONFIG };
+/**
+ * Export data from MongoDB to Excel
+ */
+async function exportToExcel(gameType) {
+  try {
+    const results = await db.LotteryResult
+      .find({ gameType })
+      .sort({ drawDate: -1 })
+      .lean();
+    
+    if (results.length === 0) {
+      return { success: false, error: 'No data to export' };
+    }
+    
+    const excelData = results.map(r => {
+      const row = { Date: normalizeDate(r.drawDate) || r.drawDate };
+      r.numbers.forEach((num, idx) => {
+        row[`Number ${idx + 1}`] = num;
+      });
+      if (r.bonus) row.Bonus = r.bonus;
+      return row;
+    });
+    
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    XLSX.utils.book_append_sheet(workbook, worksheet, gameType.toUpperCase());
+    
+    const exportDir = path.join(__dirname, '../exports');
+    if (!fs.existsSync(exportDir)) {
+      fs.mkdirSync(exportDir, { recursive: true });
+    }
+    
+    const filename = `${gameType}-export-${Date.now()}.xlsx`;
+    const filepath = path.join(exportDir, filename);
+    XLSX.writeFile(workbook, filepath);
+    
+    return {
+      success: true,
+      filename,
+      filepath,
+      count: results.length
+    };
+  } catch (error) {
+    console.error(`Export failed for ${gameType}:`, error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
 }
 
-// Update backup configuration
-function setBackupConfig(config) {
-  if (config.maxBackups !== undefined) {
-    if (typeof config.maxBackups !== 'number' || config.maxBackups < 1) {
-      throw new Error('maxBackups must be a positive number');
-    }
-    BACKUP_CONFIG.maxBackups = config.maxBackups;
-  }
-  
-  if (config.autoCleanup !== undefined) {
-    if (typeof config.autoCleanup !== 'boolean') {
-      throw new Error('autoCleanup must be a boolean');
-    }
-    BACKUP_CONFIG.autoCleanup = config.autoCleanup;
-  }
-  
-  console.log(`⚙️  Backup config updated:`, BACKUP_CONFIG);
-  
-  return { ...BACKUP_CONFIG };
-}
-
-// Manually trigger backup cleanup
-function manualBackupCleanup(gameType = null) {
-  if (gameType) {
-    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
-      throw new Error('Invalid game type');
-    }
-    return cleanupOldBackups(gameType, BACKUP_CONFIG.maxBackups);
-  }
-  
-  // Clean up all game types
-  const results = {
-    '539': cleanupOldBackups('539', BACKUP_CONFIG.maxBackups),
-    'mark6': cleanupOldBackups('mark6', BACKUP_CONFIG.maxBackups),
-    'lotto649': cleanupOldBackups('lotto649', BACKUP_CONFIG.maxBackups)
-  };
-  
-  return results;
-}
-
-// Predefined schedule presets 
+// Predefined schedule presets
 const SCHEDULE_PRESETS = {
   'every-hour': '0 * * * *',
   'every-3-hours': '0 */3 * * *',
@@ -431,8 +585,8 @@ module.exports = {
   stopScheduler,
   getSchedulerStatus,
   triggerManualScrape,
-  getBackupConfig,
-  setBackupConfig,
-  manualBackupCleanup,
+  exportToExcel,
+  createBackup,
+  cleanupOldBackups,
   SCHEDULE_PRESETS
 };

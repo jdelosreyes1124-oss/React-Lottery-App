@@ -979,7 +979,7 @@ const AllPastResultsModal = ({ gameType, onClose }) => {
     setError(null);
     
     try {
-      const resultsResponse = await fetch(`${API_BASE_URL}/admin/historical-results/${gameType}?limit=999999`, {
+      const resultsResponse = await fetch(`${API_BASE_URL}/predictions/public-results/${gameType}?limit=999999`, {
         credentials: 'include'
       });
       

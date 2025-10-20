@@ -2,6 +2,11 @@
 
 # dependencies
 /node_modules
+.env
+*.log
+uploads/
+logs/
+.DS_Store
 /.pnp
 .pnp.js
 
