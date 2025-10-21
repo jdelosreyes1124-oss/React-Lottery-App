@@ -3,7 +3,7 @@ import { Brain, Activity, AlertCircle, CheckCircle2, Zap, TrendingUp, Loader2, D
 
 // API Configuration
 const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
-
+console.log('✅ API_BASE_URL:', API_BASE_URL);
 // User roles
 const USER_ROLES = {
   ADMIN: 'admin',
