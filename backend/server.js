@@ -37,7 +37,8 @@ mongoose.connect(mongoUri)
 // ============================================
 // MIDDLEWARE
 // ============================================
-
+app.use(cors({
+  origin: 'https://react-lottery-app-qber.vercel.app'}));
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: false,
