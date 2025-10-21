@@ -33,12 +33,12 @@ const MULTIPLIER_OPTIONS = [
 
 // API service 
 const api = {
-  login: (credentials) =>
-    fetch(`${API_BASE_URL}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(credentials)
+  login: ({ username, password }) =>
+    fetch(`${API_BASE}/auth/login`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ username, password }),
+  credentials: 'include'
     }).then(res => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
