@@ -107,13 +107,13 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   proxy: true, // ✅ critical for Render proxy
-  cookie: { 
-    secure: process.env.NODE_ENV === 'production', // ✅ required for HTTPS
-    httpOnly: true,
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    domain: '.onrender.com', // ✅ ensures cookie works for your Render backend subdomain
-    maxAge: 24 * 60 * 60 * 1000
-  }
+cookie: { 
+  secure: true,              // always true on Render (HTTPS)
+  httpOnly: true,
+  sameSite: 'none',          // must be 'none' for cross-domain cookies
+  maxAge: 24 * 60 * 60 * 1000
+}
+
 }));
 
 
