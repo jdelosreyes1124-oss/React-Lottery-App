@@ -34,7 +34,7 @@ const MULTIPLIER_OPTIONS = [
 // API service 
 const api = {
   login: ({ username, password }) =>
-    fetch(`${API_BASE}/auth/login`, {
+    fetch(`${API_BASE_URL}/auth/login`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ username, password }),
@@ -45,18 +45,18 @@ const api = {
     }),
   
   logout: () =>
-    fetch(`${API_BASE}/auth/logout`, {
+    fetch(`${API_BASE_URL}/auth/logout`, {
       method: 'POST',
       credentials: 'include'
     }).then(res => res.json()).catch(err => ({ success: false })),
   
   verifyAuth: () =>
-    fetch(`${API_BASE}/auth/verify`, {
+    fetch(`${API_BASE_URL}/auth/verify`, {
       credentials: 'include'
     }).then(res => res.json()).catch(() => ({ authenticated: false })),
   
   predict: (gameType, period = '1month') => 
-    fetch(`${API_BASE}/predictions/${gameType}`, { 
+    fetch(`${API_BASE_URL}/predictions/${gameType}`, { 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -64,7 +64,7 @@ const api = {
     }).then(res => res.json()),
 
   automation: (gameType, period, multiplier) =>
-    fetch(`${API_BASE}/predictions/${gameType}/automation`, {
+    fetch(`${API_BASE_URL}/predictions/${gameType}/automation`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -72,7 +72,7 @@ const api = {
     }).then(res => res.json()),
   
   getHistoricalResults: (gameType) =>
-    fetch(`${API_BASE}/admin/historical-results/${gameType}`, {
+    fetch(`${API_BASE_URL}/admin/historical-results/${gameType}`, {
       credentials: 'include'
     }).then(res => {
       if (res.status === 403) throw new Error('Admin access required');
@@ -80,7 +80,7 @@ const api = {
     }),
 
   addHistoricalResult: (gameType, result) =>
-    fetch(`${API_BASE}/admin/historical-results/${gameType}/add`, {
+    fetch(`${API_BASE_URL}/admin/historical-results/${gameType}/add`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -91,7 +91,7 @@ const api = {
     }),
 
   deleteHistoricalResult: (gameType, resultId) =>
-    fetch(`${API_BASE}/admin/historical-results/${gameType}/${resultId}`, {
+    fetch(`${API_BASE_URL}/admin/historical-results/${gameType}/${resultId}`, {
       method: 'DELETE',
       credentials: 'include'
     }).then(res => {
@@ -100,7 +100,7 @@ const api = {
     }),
 
   syncBackendExcel: (gameType) =>
-    fetch(`${API_BASE}/admin/historical-results/${gameType}/sync`, {
+    fetch(`${API_BASE_URL}/admin/historical-results/${gameType}/sync`, {
       method: 'POST',
       credentials: 'include'
     }).then(res => {
@@ -109,7 +109,7 @@ const api = {
     }),
 
   scraperPreview: (gameType, maxResults = 30) =>
-    fetch(`${API_BASE}/admin/scraper/preview/${gameType}?maxResults=${maxResults}`, {
+    fetch(`${API_BASE_URL}/admin/scraper/preview/${gameType}?maxResults=${maxResults}`, {
       credentials: 'include'
     }).then(res => {
       if (res.status === 403) throw new Error('Admin access required');
@@ -117,7 +117,7 @@ const api = {
     }),
 
   scraperImport: (gameType, maxResults = 50, mergeStrategy = 'skip') =>
-    fetch(`${API_BASE}/admin/scraper/import/${gameType}`, {
+    fetch(`${API_BASE_URL}/admin/scraper/import/${gameType}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -128,22 +128,22 @@ const api = {
     }),
 
   scraperStatus: (gameType) =>
-    fetch(`${API_BASE}/admin/scraper/status/${gameType}`, {
+    fetch(`${API_BASE_URL}/admin/scraper/status/${gameType}`, {
       credentials: 'include'
     }).then(res => res.json()),
 
   getSchedulerStatus: (gameType) =>
-    fetch(`${API_BASE}/admin/scheduler/status/${gameType}`, {
+    fetch(`${API_BASE_URL}/admin/scheduler/status/${gameType}`, {
       credentials: 'include'
     }).then(res => res.json()),
 
   getAllSchedulerStatus: () =>
-    fetch(`${API_BASE}/admin/scheduler/status`, {
+    fetch(`${API_BASE_URL}/admin/scheduler/status`, {
       credentials: 'include'
     }).then(res => res.json()),
 
   startScheduler: (gameType, schedule) =>
-    fetch(`${API_BASE}/admin/scheduler/start/${gameType}`, {
+    fetch(`${API_BASE_URL}/admin/scheduler/start/${gameType}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -151,19 +151,19 @@ const api = {
     }).then(res => res.json()),
 
   stopScheduler: (gameType) =>
-    fetch(`${API_BASE}/admin/scheduler/stop/${gameType}`, {
+    fetch(`${API_BASE_URL}/admin/scheduler/stop/${gameType}`, {
       method: 'POST',
       credentials: 'include'
     }).then(res => res.json()),
 
   triggerManualScrape: (gameType) =>
-    fetch(`${API_BASE}/admin/scheduler/trigger/${gameType}`, {
+    fetch(`${API_BASE_URL}/admin/scheduler/trigger/${gameType}`, {
       method: 'POST',
       credentials: 'include'
     }).then(res => res.json()),
 
   getAllPastResults: (gameType) =>
-    fetch(`${API_BASE}/predictions/all-past-results/${gameType}`, {
+    fetch(`${API_BASE_URL}/predictions/all-past-results/${gameType}`, {
       credentials: 'include'
     }).then(res => res.json())
 };
