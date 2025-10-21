@@ -87,26 +87,35 @@ if (process.env.NODE_ENV === 'development') {
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Trust Render proxy so Express knows it’s using HTTPS
+app.set('trust proxy', 1);
 
+// Optional but helpful: always send Access-Control-Allow-Credentials
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Credentials', 'true');
+  next();
+});
 // Session middleware with MongoDB store
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key-change-in-production',
   store: MongoStore.create({
     mongoUrl: mongoUri,
     collectionName: 'sessions',
-    ttl: 24 * 60 * 60, // 24 hours
+    ttl: 24 * 60 * 60,
     autoRemove: 'native'
   }),
   resave: false,
   saveUninitialized: false,
+  proxy: true, // ✅ critical for Render proxy
   cookie: { 
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.NODE_ENV === 'production', // ✅ required for HTTPS
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    domain: '.onrender.com',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    domain: '.onrender.com', // ✅ ensures cookie works for your Render backend subdomain
+    maxAge: 24 * 60 * 60 * 1000
   }
 }));
+
 
 // ============================================
 // ROUTES
