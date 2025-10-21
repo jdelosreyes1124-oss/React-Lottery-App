@@ -71,13 +71,35 @@ const api = {
       body: JSON.stringify({ period, iterations: multiplier })
     }).then(res => res.json()),
   
-  getHistoricalResults: (gameType) =>
-    fetch(`${API_BASE_URL}/admin/historical-results/${gameType}`, {
-      credentials: 'include'
-    }).then(res => {
+getHistoricalResults: (gameType) =>
+  fetch(`${API_BASE_URL}/admin/historical-results/${gameType}`, {
+    method: 'GET',
+    credentials: 'include', // ✅ ensures session cookies are sent
+    headers: {
+      'Accept': 'application/json'
+    }
+  })
+  .then(async res => {
+    if (!res.ok) {
+      // Try to read the JSON safely
+      let errorMessage = `HTTP ${res.status}`;
+      try {
+        const data = await res.json();
+        errorMessage = data?.error || data?.message || errorMessage;
+      } catch {
+        // response was HTML or empty
+      }
+      if (res.status === 401) throw new Error('Not authenticated');
       if (res.status === 403) throw new Error('Admin access required');
-      return res.json();
-    }),
+      throw new Error(errorMessage);
+    }
+    return res.json();
+  })
+  .catch(err => {
+    console.error('❌ Failed to load historical results:', err.message);
+    throw err;
+  }),
+
 
   addHistoricalResult: (gameType, result) =>
   fetch(`${API_BASE_URL}/admin/historical-results/${gameType}/add`, {
