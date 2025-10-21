@@ -37,13 +37,13 @@ mongoose.connect(mongoUri)
 // ============================================
 // MIDDLEWARE
 // ============================================
-app.use(cors({
-  origin: 'https://react-lottery-app-qber.vercel.app'}));
-// Security middleware
-app.use(helmet({
-  contentSecurityPolicy: false,
-}));
-app.use(compression());
+// app.use(cors({
+//   origin: 'https://react-lottery-app-qber.vercel.app'}));
+// // Security middleware
+// app.use(helmet({
+//   contentSecurityPolicy: false,
+// }));
+// app.use(compression());
 
 // CORS configuration - Allow multiple origins including all Vercel deployments
 const allowedOrigins = [
