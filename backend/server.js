@@ -54,24 +54,26 @@ const allowedOrigins = [
   process.env.FRONTEND_URL
 ].filter(Boolean); // Remove any undefined values
 
-app.use(cors({
-  origin: function(origin, callback) {
-    // Allow requests with no origin (mobile apps, curl, Postman, etc.)
+const corsOptions = {
+  origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-    
-    // Check if origin is in allowed list OR matches Vercel pattern
-    if (allowedOrigins.indexOf(origin) !== -1 || origin.match(/\.vercel\.app$/)) {
+    if (allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin)) {
       callback(null, true);
     } else {
       console.log('❌ CORS blocked origin:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true,
+  credentials: true, // ✅ REQUIRED for cookies/sessions
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Set-Cookie'], // ✅ expose cookies to browser
   optionsSuccessStatus: 200
-}));
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // ✅ handle preflight
+
 
 // Logging
 if (process.env.NODE_ENV === 'development') {
