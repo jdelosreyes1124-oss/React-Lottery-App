@@ -1,17 +1,29 @@
 # render.yaml
-# Place this file in your backend root directory
-
 services:
-  # Main backend service
   - type: web
     name: lottery-backend
     runtime: node
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
+    autoDeploy: true
+    plan: free
+    region: singapore
+    timeout: 120
+
     envVars:
       - key: NODE_ENV
         value: production
+      - key: MONGODB_URI
+        value: mongodb+srv://<your-uri-without-db-name>/
+      - key: MONGODB_DB
+        value: lotterydb
+      - key: SESSION_SECRET
+        value: your-super-secret-key-change-this
+      - key: FRONTEND_URL
+        value: https://react-lottery-app-qber.vercel.app
+      - key: COOKIE_DOMAIN
+        value: .onrender.com
       - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
         value: true
       - key: PUPPETEER_EXECUTABLE_PATH

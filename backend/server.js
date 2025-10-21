@@ -74,6 +74,8 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions)); // ✅ handle preflight
 
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(compression());
 
 // Logging
 if (process.env.NODE_ENV === 'development') {
