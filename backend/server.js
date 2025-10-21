@@ -33,6 +33,10 @@ mongoose.connect(mongoUri)
     console.error('❌ MongoDB connection error:', err);
     process.exit(1);
   });
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
 
 // ============================================
 // MIDDLEWARE
@@ -97,24 +101,22 @@ app.use((req, res, next) => {
 });
 // Session middleware with MongoDB store
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-secret-key-change-in-production',
+  secret: process.env.SESSION_SECRET,
   store: MongoStore.create({
     mongoUrl: mongoUri,
     collectionName: 'sessions',
-    ttl: 24 * 60 * 60,
-    autoRemove: 'native'
   }),
   resave: false,
   saveUninitialized: false,
-  proxy: true, // ✅ critical for Render proxy
-cookie: { 
-  secure: true,              // always true on Render (HTTPS)
-  httpOnly: true,
-  sameSite: 'none',          // must be 'none' for cross-domain cookies
-  maxAge: 24 * 60 * 60 * 1000
-}
-
+  proxy: true,
+  cookie: {
+    secure: true,        // Required on Render HTTPS
+    httpOnly: true,
+    sameSite: 'none',    // Critical for cross-domain session
+    maxAge: 24 * 60 * 60 * 1000
+  }
 }));
+
 
 
 // ============================================
