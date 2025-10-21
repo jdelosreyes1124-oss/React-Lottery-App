@@ -80,15 +80,28 @@ const api = {
     }),
 
   addHistoricalResult: (gameType, result) =>
-    fetch(`${API_BASE_URL}/admin/historical-results/${gameType}/add`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(result)
-    }).then(res => {
-      if (res.status === 403) throw new Error('Admin access required');
-      return res.json();
-    }),
+  fetch(`${API_BASE_URL}/admin/historical-results/${gameType}/add`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include', // ✅ required for session cookies
+    body: JSON.stringify(result)
+  })
+  .then(async res => {
+    if (res.status === 401) {
+      throw new Error('Unauthorized - please log in again');
+    }
+    if (res.status === 403) {
+      throw new Error('Admin access required');
+    }
+
+    // Try to parse JSON safely, fallback if not valid JSON
+    try {
+      return await res.json();
+    } catch {
+      const text = await res.text();
+      throw new Error(`Invalid JSON response: ${text.slice(0, 100)}`);
+    }
+  }),
 
   deleteHistoricalResult: (gameType, resultId) =>
     fetch(`${API_BASE_URL}/admin/historical-results/${gameType}/${resultId}`, {
