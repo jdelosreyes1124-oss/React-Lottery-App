@@ -43,7 +43,7 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
   'https://react-lottery-app-qber.vercel.app',
-  'https://react-lottery-app-qber-e5taw4n1h-joshuads-projects-754ba2a4.vercel.app',
+  
   process.env.FRONTEND_URL
 ].filter(Boolean); // Remove any undefined values
 
