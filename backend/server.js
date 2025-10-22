@@ -33,28 +33,17 @@ mongoose.connect(mongoUri)
     console.error('❌ MongoDB connection error:', err);
     process.exit(1);
   });
-app.use(cors({
-  origin: allowedOrigins,
-  credentials: true
-}));
 
 // ============================================
 // MIDDLEWARE
 // ============================================
-// app.use(cors({
-//   origin: 'https://react-lottery-app-qber.vercel.app'}));
-// // Security middleware
-// app.use(helmet({
-//   contentSecurityPolicy: false,
-// }));
-// app.use(compression());
 
 // CORS configuration - Allow multiple origins including all Vercel deployments
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
   'https://react-lottery-app-qber.vercel.app',
-  'https://react-lottery-app-qber-e5taw4n1h-joshuads-projects-754ba2a4.vercel.app',  // ✅ add this line
+  'https://react-lottery-app-qber-e5taw4n1h-joshuads-projects-754ba2a4.vercel.app',
   process.env.FRONTEND_URL
 ].filter(Boolean); // Remove any undefined values
 
@@ -91,7 +80,8 @@ if (process.env.NODE_ENV === 'development') {
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-// Trust Render proxy so Express knows it’s using HTTPS
+
+// Trust Render proxy so Express knows it's using HTTPS
 app.set('trust proxy', 1);
 
 // Optional but helpful: always send Access-Control-Allow-Credentials
@@ -99,6 +89,7 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Credentials', 'true');
   next();
 });
+
 // Session middleware with MongoDB store
 app.use(session({
   secret: process.env.SESSION_SECRET,
@@ -116,8 +107,6 @@ app.use(session({
     maxAge: 24 * 60 * 60 * 1000
   }
 }));
-
-
 
 // ============================================
 // ROUTES
