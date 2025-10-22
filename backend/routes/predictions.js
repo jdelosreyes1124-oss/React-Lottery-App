@@ -666,8 +666,8 @@ router.post('/:gameType/automation', async (req, res) => {
       
       // Select numbers with weighted probability
       while (numbers.length < config.numbersPerDraw && availableNumbers.length > 0) {
-        // Top numbers have higher chance
-        const maxIndex = Math.min(15, availableNumbers.length);
+        // Top numbers have higher chance (using power of 2) - NOW SELECTS FROM ALL 39 NUMBERS
+        const maxIndex = availableNumbers.length;
         const randomIndex = Math.floor(Math.pow(Math.random(), 2) * maxIndex);
         
         const selected = availableNumbers.splice(randomIndex, 1)[0];
