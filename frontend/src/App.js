@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Brain, Activity, AlertCircle, CheckCircle2, Zap, TrendingUp, Loader2, Database, Shield, Lock, User, LogOut, X, Info, Calendar, RotateCw, Pipette } from 'lucide-react';
 
 // API Configuration
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://react-lottery-app-qber.vercel.app/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://lottery-backend-tdqv.onrender.com/api';
 console.log('✅ API_BASE_URL:', API_BASE_URL);
 // User roles
 const USER_ROLES = {
