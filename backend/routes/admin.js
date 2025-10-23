@@ -9,7 +9,9 @@ const dbService = require('../services/databaseService');
 const db = require('../models_mongoose');
 const scheduledScraper = require('../services/scheduledScraper');
 
-// Rate limiting
+// ============================================
+// RATE LIMITING
+// ============================================
 const scraperLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 10,
@@ -19,7 +21,9 @@ const scraperLimiter = rateLimit({
   }
 });
 
-// Multer configuration
+// ============================================
+// MULTER CONFIGURATION
+// ============================================
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = path.join(__dirname, '../uploads');
@@ -45,26 +49,96 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }
 });
 
-// Admin authentication middleware
-const requireAdmin = async (req, res, next) => {
-  if (!req.session || !req.session.user) {
+// ============================================
+// AUTHENTICATION MIDDLEWARE
+// ============================================
+
+// Check if user is authenticated
+const requireAuth = (req, res, next) => {
+  console.log('Auth check:', {
+    hasSession: !!req.session,
+    hasUserId: !!req.session?.userId,
+    hasUser: !!req.session?.user,
+    sessionId: req.sessionID
+  });
+
+  // Check both userId and user object for compatibility
+  if (!req.session || (!req.session.userId && !req.session.user)) {
     return res.status(401).json({ 
       success: false, 
-      error: 'Not authenticated' 
+      error: 'Not authenticated',
+      message: 'Please log in to access this resource'
     });
   }
-  
-  if (req.session.user.role !== 'admin') {
-    return res.status(403).json({ 
-      success: false, 
-      error: 'Admin access required' 
-    });
-  }
-  
   next();
 };
 
-// Helper functions
+// Check if user has admin role
+const requireAdmin = async (req, res, next) => {
+  try {
+    // First check if authenticated
+    if (!req.session || (!req.session.userId && !req.session.user)) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Not authenticated' 
+      });
+    }
+
+    // Get user ID from session (support both formats)
+    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
+    
+    if (!userId) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Invalid session' 
+      });
+    }
+
+    // If user object is already in session and has role, use it
+    if (req.session.user && req.session.user.role) {
+      if (req.session.user.role !== 'admin') {
+        return res.status(403).json({ 
+          success: false, 
+          error: 'Admin access required' 
+        });
+      }
+      return next();
+    }
+
+    // Otherwise fetch from database
+    const user = await db.User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'User not found' 
+      });
+    }
+
+    if (user.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Admin access required',
+        message: 'You do not have permission to access this resource'
+      });
+    }
+    
+    // Store user in request for later use
+    req.user = user;
+    next();
+  } catch (error) {
+    console.error('Admin middleware error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Authorization check failed',
+      message: error.message 
+    });
+  }
+};
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
 function normalizeDate(date) {
   if (!date) return null;
   try {
@@ -222,17 +296,543 @@ async function syncFromExcel(gameType) {
   }
 }
 
+// ============================================
+// CRITICAL MISSING ROUTE - Historical Results
+// ============================================
+
+// GET /api/admin/historical-results/:gameType - THIS IS THE MISSING ROUTE
+router.get('/historical-results/:gameType', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { gameType } = req.params;
+    const { page = 1, limit = 50 } = req.query;
+    
+    console.log(`📊 Fetching historical results - Game: ${gameType}, Page: ${page}, Limit: ${limit}`);
+    
+    // Validate game type
+    const validGames = ['539', 'mark6', 'lotto649'];
+    if (!validGames.includes(gameType)) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Invalid game type',
+        validTypes: validGames,
+        received: gameType
+      });
+    }
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Fetch results with pagination
+    const results = await db.LotteryResult
+      .find({ gameType })
+      .sort({ drawDate: -1 }) // Most recent first
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean();
+
+    // Get total count for pagination
+    const total = await db.LotteryResult.countDocuments({ gameType });
+
+    console.log(`✅ Found ${results.length} results out of ${total} total`);
+
+    res.json({
+      success: true,
+      data: results || [],
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit)),
+        hasMore: skip + results.length < total
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error fetching historical results:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch historical results',
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+// POST /api/admin/historical-results/:gameType/add
+router.post('/historical-results/:gameType/add', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { gameType } = req.params;
+    const { drawDate, numbers, bonus } = req.body;
+    
+    console.log('Adding new result:', { gameType, drawDate, numbers, bonus });
+    
+    // Validate game type
+    const validGames = ['539', 'mark6', 'lotto649'];
+    if (!validGames.includes(gameType)) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Invalid game type',
+        validTypes: validGames 
+      });
+    }
+
+    // Validate required fields
+    if (!drawDate || !numbers || !Array.isArray(numbers)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        required: ['drawDate', 'numbers (array)']
+      });
+    }
+
+    // Check for duplicate
+    const existing = await db.LotteryResult.findOne({
+      gameType,
+      drawDate: new Date(drawDate)
+    });
+
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        error: 'Result already exists for this date',
+        existingId: existing._id
+      });
+    }
+
+    // Create new result
+    const newResult = await db.LotteryResult.create({
+      gameType,
+      drawDate: new Date(drawDate),
+      numbers,
+      bonus: bonus || null,
+      source: 'admin_manual',
+      createdAt: new Date()
+    });
+
+    // Log the action
+    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
+    if (userId) {
+      await dbService.logAdminAction(
+        userId,
+        'ADD_HISTORICAL_RESULT',
+        { gameType, drawDate, numbers, bonus },
+        req
+      );
+    }
+
+    console.log('✅ Result added successfully:', newResult._id);
+
+    res.status(201).json({
+      success: true,
+      data: newResult,
+      message: 'Historical result added successfully'
+    });
+  } catch (error) {
+    console.error('Error adding historical result:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to add result',
+      message: error.message 
+    });
+  }
+});
+
+// DELETE /api/admin/historical-results/:gameType/:resultId
+router.delete('/historical-results/:gameType/:resultId', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { gameType, resultId } = req.params;
+    
+    console.log('Deleting result:', { gameType, resultId });
+    
+    const result = await db.LotteryResult.findOneAndDelete({
+      _id: resultId,
+      gameType
+    });
+
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        error: 'Result not found',
+        resultId
+      });
+    }
+
+    // Log the action
+    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
+    if (userId) {
+      await dbService.logAdminAction(
+        userId,
+        'DELETE_HISTORICAL_RESULT',
+        { gameType, resultId, deletedData: result },
+        req
+      );
+    }
+
+    console.log('✅ Result deleted successfully');
+
+    res.json({
+      success: true,
+      message: 'Result deleted successfully',
+      deletedResult: result
+    });
+  } catch (error) {
+    console.error('Error deleting result:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to delete result',
+      message: error.message 
+    });
+  }
+});
+
+// POST /api/admin/historical-results/:gameType/sync - Sync with Excel
+router.post('/historical-results/:gameType/sync', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { gameType } = req.params;
+    
+    console.log('🔄 Syncing Excel data for:', gameType);
+    
+    const result = await syncFromExcel(gameType);
+    
+    // Log the action
+    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
+    if (userId) {
+      await dbService.logAdminAction(
+        userId,
+        'SYNC_EXCEL_DATA',
+        { gameType, result },
+        req
+      );
+    }
+    
+    res.json({
+      success: !result.error,
+      ...result
+    });
+  } catch (error) {
+    console.error('Sync error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Sync failed',
+      message: error.message 
+    });
+  }
+});
+
+// ============================================
+// SCRAPER ROUTES (for Auto Update functionality)
+// ============================================
+
+// GET /api/admin/scraper/preview/:gameType
+router.get('/scraper/preview/:gameType', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { gameType } = req.params;
+    const { maxResults = 30 } = req.query;
+    
+    console.log('Scraper preview for:', gameType);
+    
+    // Get latest results from scraper without importing
+    const scraperData = await scheduledScraper.previewScrape(gameType, parseInt(maxResults));
+    
+    res.json({
+      success: true,
+      gameType,
+      data: scraperData,
+      count: scraperData.length,
+      maxResults: parseInt(maxResults)
+    });
+  } catch (error) {
+    console.error('Scraper preview error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Preview failed',
+      message: error.message 
+    });
+  }
+});
+
+// POST /api/admin/scraper/import/:gameType
+router.post('/scraper/import/:gameType', requireAuth, requireAdmin, scraperLimiter, async (req, res) => {
+  try {
+    const { gameType } = req.params;
+    const { maxResults = 50, mergeStrategy = 'skip' } = req.body;
+    
+    console.log('🔄 Importing scraped results:', { gameType, maxResults, mergeStrategy });
+    
+    const result = await scheduledScraper.triggerManualScrape(gameType);
+    
+    // Log the action
+    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
+    if (userId && result.success) {
+      await dbService.logAdminAction(
+        userId,
+        'IMPORT_SCRAPED_DATA',
+        { 
+          gameType,
+          maxResults,
+          mergeStrategy,
+          result: {
+            added: result.added,
+            skipped: result.skipped,
+            total: result.total
+          }
+        },
+        req
+      );
+    }
+    
+    res.json({
+      success: result.success,
+      message: result.success ? `Imported ${result.added} new results` : 'Import failed',
+      imported: result.added || 0,
+      skipped: result.skipped || 0,
+      total: result.total || 0,
+      error: result.error
+    });
+  } catch (error) {
+    console.error('Import error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Import failed',
+      message: error.message 
+    });
+  }
+});
+
+// GET /api/admin/scraper/status/:gameType
+router.get('/scraper/status/:gameType', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { gameType } = req.params;
+    
+    const status = scheduledScraper.getSchedulerStatus()[gameType];
+    
+    res.json({
+      success: true,
+      gameType,
+      ...status
+    });
+  } catch (error) {
+    console.error('Status error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to get status',
+      message: error.message 
+    });
+  }
+});
+
+// ============================================
+// SCHEDULER ROUTES (Auto Update functionality)
+// ============================================
+
+// GET /api/admin/scheduler/status/:gameType
+router.get('/scheduler/status/:gameType', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { gameType } = req.params;
+    
+    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid game type'
+      });
+    }
+    
+    const status = scheduledScraper.getSchedulerStatus()[gameType];
+    
+    res.json({
+      success: true,
+      gameType,
+      status: status?.isActive ? 'active' : 'inactive',
+      ...status
+    });
+  } catch (error) {
+    console.error('Scheduler status error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to get scheduler status',
+      message: error.message 
+    });
+  }
+});
+
+// GET /api/admin/scheduler/status (all games)
+router.get('/scheduler/status', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const allStatus = scheduledScraper.getSchedulerStatus();
+    
+    res.json({
+      success: true,
+      schedulers: allStatus,
+      presets: scheduledScraper.SCHEDULE_PRESETS
+    });
+  } catch (error) {
+    console.error('Error getting all scheduler status:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// POST /api/admin/scheduler/start/:gameType
+router.post('/scheduler/start/:gameType', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { gameType } = req.params;
+    const { schedule = '0 */6 * * *' } = req.body;
+    
+    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid game type'
+      });
+    }
+    
+    const result = scheduledScraper.startScheduler(gameType, schedule);
+    
+    await dbService.updateSchedulerJob(gameType, {
+      isActive: true,
+      schedule,
+      nextRun: new Date()
+    });
+    
+    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
+    if (userId) {
+      await dbService.logAdminAction(
+        userId,
+        'START_SCHEDULER',
+        { gameType, schedule },
+        req
+      );
+    }
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Error starting scheduler:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// POST /api/admin/scheduler/stop/:gameType
+router.post('/scheduler/stop/:gameType', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { gameType } = req.params;
+    
+    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid game type'
+      });
+    }
+    
+    const result = scheduledScraper.stopScheduler(gameType);
+    
+    await dbService.updateSchedulerJob(gameType, {
+      isActive: false
+    });
+    
+    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
+    if (userId) {
+      await dbService.logAdminAction(
+        userId,
+        'STOP_SCHEDULER',
+        { gameType },
+        req
+      );
+    }
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Error stopping scheduler:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// POST /api/admin/scheduler/trigger/:gameType - Manual trigger
+router.post('/scheduler/trigger/:gameType', requireAuth, requireAdmin, scraperLimiter, async (req, res) => {
+  try {
+    const { gameType } = req.params;
+    
+    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid game type'
+      });
+    }
+    
+    console.log(`🔧 Manual scrape triggered for ${gameType.toUpperCase()}`);
+    
+    const result = await scheduledScraper.triggerManualScrape(gameType);
+    
+    if (result.success) {
+      const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
+      if (userId) {
+        await dbService.logAdminAction(
+          userId,
+          'TRIGGER_MANUAL_SCRAPE',
+          { 
+            gameType, 
+            result: {
+              success: result.success,
+              added: result.added,
+              skipped: result.skipped,
+              scraped: result.scraped,
+              total: result.total
+            }
+          },
+          req
+        );
+      }
+      
+      res.json({
+        success: true,
+        message: `Updated! ${result.added} new results added`,
+        added: result.added,
+        skipped: result.skipped,
+        total: result.total,
+        scraped: result.scraped
+      });
+    } else {
+      res.json({
+        success: false,
+        error: result.error || 'Scraping failed',
+        message: `Scraping failed: ${result.error}`,
+        added: 0
+      });
+    }
+  } catch (error) {
+    console.error('Error triggering manual scrape:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: `Error: ${error.message}`,
+      added: 0
+    });
+  }
+});
+
+// ============================================
+// EXISTING ROUTES (Keep all your original routes)
+// ============================================
+
 // GET /api/admin/stats
 router.get('/stats', requireAdmin, async (req, res) => {
   try {
     const stats = await dbService.getStatistics();
     
-    await dbService.logAdminAction(
-      req.session.user.id,
-      'VIEW_STATS',
-      { stats },
-      req
-    );
+    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
+    if (userId) {
+      await dbService.logAdminAction(
+        userId,
+        'VIEW_STATS',
+        { stats },
+        req
+      );
+    }
     
     res.json({ success: true, stats });
   } catch (error) {
@@ -289,176 +889,154 @@ router.get('/excel/preview', requireAdmin, async (req, res) => {
       };
     }
     
-    await dbService.logAdminAction(
-      req.session.user.id,
-      'EXCEL_PREVIEW',
-      { gamesFound: Object.keys(preview) },
-      req
-    );
-
-    res.json({ success: true, data: preview });
+    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
+    if (userId) {
+      await dbService.logAdminAction(
+        userId,
+        'PREVIEW_EXCEL',
+        { preview },
+        req
+      );
+    }
+    
+    res.json({ success: true, preview });
   } catch (error) {
-    console.error('Error loading Excel preview:', error);
+    console.error('Error getting excel preview:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// POST /api/admin/excel/upload
-router.post('/excel/upload', requireAdmin, upload.single('file'), async (req, res) => {
+// POST /api/admin/excel/sync/:gameType
+router.post('/excel/sync/:gameType', requireAdmin, async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'No file uploaded' 
+    const { gameType } = req.params;
+    const { source = 'both' } = req.body;
+    
+    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid game type'
       });
     }
+    
+    const results = {};
+    
+    if (source === 'excel' || source === 'both') {
+      results.excel = await syncFromExcel(gameType);
+    }
+    
+    if (source === 'web' || source === 'both') {
+      results.web = await syncFromWeb(gameType);
+    }
+    
+    const totalImported = (results.excel?.imported || 0) + (results.web?.imported || 0);
+    const totalSkipped = (results.excel?.skipped || 0) + (results.web?.skipped || 0);
+    
+    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
+    if (userId) {
+      await dbService.logAdminAction(
+        userId,
+        'SYNC_DATA',
+        { gameType, source, results },
+        req
+      );
+    }
+    
+    res.json({
+      success: true,
+      message: `Sync completed! ${totalImported} imported, ${totalSkipped} skipped`,
+      results,
+      summary: {
+        totalImported,
+        totalSkipped
+      }
+    });
+  } catch (error) {
+    console.error('Sync error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 
-    console.log('📤 Processing uploaded file:', req.file.originalname);
-
+// POST /api/admin/excel/upload
+router.post('/excel/upload', requireAdmin, upload.single('excel'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file uploaded'
+      });
+    }
+    
     const workbook = XLSX.readFile(req.file.path);
-    const allResults = [];
-    const summary = {
-      '539': { imported: 0, skipped: 0, errors: 0 },
-      'mark6': { imported: 0, skipped: 0, errors: 0 },
-      'lotto649': { imported: 0, skipped: 0, errors: 0 }
-    };
-
+    const importResults = [];
+    
     for (const sheetName of workbook.SheetNames) {
       const worksheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet);
+      const data = XLSX.utils.sheet_to_json(worksheet);
       
-      const gameType = identifyGameType(sheetName, jsonData);
+      if (!data || data.length === 0) continue;
+      
+      const gameType = identifyGameType(sheetName, data);
       if (!gameType) {
-        console.log(`Skipping sheet ${sheetName}: Unable to identify game type`);
+        console.log(`Could not identify game type for sheet: ${sheetName}`);
         continue;
       }
       
-      console.log(`Processing ${jsonData.length} rows from sheet: ${sheetName} (${gameType})`);
-      
-      const results = jsonData.map(row => {
+      const results = [];
+      for (const row of data) {
         const numbers = extractNumbers(row);
-        const bonus = row.Bonus || row.bonus || row.BONUS || null;
-        const drawDate = normalizeDate(row.Date || row.date || row.DATE || row['Draw Date']);
+        const bonus = row.Bonus || row.bonus || null;
+        const drawDate = normalizeDate(row.Date || row.date || row['Draw Date']);
         
-        return {
-          game_type: gameType,
-          draw_date: drawDate,
-          numbers: numbers.slice(0, gameType === '539' ? 5 : 6),
-          bonus: gameType !== '539' ? bonus : null,
-          source: 'excel_import'
-        };
-      }).filter(r => r.draw_date && r.numbers.length > 0);
-      
-      allResults.push(...results);
-    }
-
-    if (allResults.length === 0) {
-      fs.unlinkSync(req.file.path);
-      return res.status(400).json({
-        success: false,
-        error: 'No valid data found in Excel file'
-      });
-    }
-
-    const importResults = await dbService.bulkAddLotteryResults(allResults, 'skip');
-    
-    importResults.forEach(result => {
-      if (result.game_type) {
-        const gameType = result.game_type;
-        if (result.action === 'created') {
-          summary[gameType].imported++;
-        } else if (result.action === 'skipped') {
-          summary[gameType].skipped++;
-        } else if (result.action === 'error') {
-          summary[gameType].errors++;
+        if (drawDate && numbers.length > 0) {
+          results.push({
+            gameType,
+            drawDate,
+            numbers: numbers.slice(0, gameType === '539' ? 5 : 6),
+            bonus: gameType !== '539' ? bonus : null,
+            source: 'excel_upload'
+          });
         }
       }
-    });
-
+      
+      if (results.length > 0) {
+        const bulkResult = await dbService.bulkUpsertLotteryResults(results);
+        importResults.push({
+          sheet: sheetName,
+          gameType,
+          processed: data.length,
+          imported: bulkResult.inserted,
+          modified: bulkResult.modified,
+          skipped: data.length - bulkResult.total
+        });
+      }
+    }
+    
     fs.unlinkSync(req.file.path);
-
-    console.log('✅ Excel import complete:', summary);
-
-    await dbService.logAdminAction(
-      req.session.user.id,
-      'EXCEL_UPLOAD',
-      {
-        filename: req.file.originalname,
-        totalProcessed: allResults.length,
-        summary
-      },
-      req
-    );
-
+    
+    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
+    if (userId) {
+      await dbService.logAdminAction(
+        userId,
+        'UPLOAD_EXCEL',
+        { filename: req.file.originalname, results: importResults },
+        req
+      );
+    }
+    
     res.json({
       success: true,
-      message: 'Excel file uploaded and processed successfully',
-      gamesLoaded: Object.keys(summary).filter(g => summary[g].imported > 0),
-      totalDraws: Object.values(summary).reduce((sum, g) => sum + g.imported, 0),
-      summary
+      message: 'Excel file processed successfully',
+      results: importResults
     });
   } catch (error) {
-    console.error('❌ Error uploading Excel file:', error);
-    
+    console.error('Excel upload error:', error);
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
-    
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
-  }
-});
-
-// GET /api/admin/historical-results/:gameType
-router.get('/historical-results/:gameType', requireAdmin, async (req, res) => {
-  try {
-    const { gameType } = req.params;
-    const { page = 1, limit = 50 } = req.query;
-    
-    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid game type'
-      });
-    }
-    
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    const { rows: results, count: total } = await dbService.getLotteryResults(
-      gameType,
-      { limit: parseInt(limit), offset }
-    );
-    
-    const formattedResults = results.map(result => ({
-      id: result._id,
-      drawDate: result.drawDate,
-      numbers: result.numbers,
-      bonus: result.bonus,
-      source: result.source,
-      createdAt: result.createdAt
-    }));
-    
-    await dbService.logAdminAction(
-      req.session.user.id,
-      'VIEW_HISTORICAL_RESULTS',
-      { gameType, resultCount: total, page, limit },
-      req
-    );
-    
-    res.json({
-      success: true,
-      results: formattedResults,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(total / limit),
-        hasMore: parseInt(page) < Math.ceil(total / limit)
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching historical results:', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -466,338 +1044,7 @@ router.get('/historical-results/:gameType', requireAdmin, async (req, res) => {
   }
 });
 
-// POST /api/admin/historical-results/:gameType/add
-router.post('/historical-results/:gameType/add', requireAdmin, async (req, res) => {
-  try {
-    const { gameType } = req.params;
-    const { numbers, bonus, drawDate } = req.body;
-    
-    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid game type'
-      });
-    }
-    
-    const expectedCount = gameType === '539' ? 5 : 6;
-    if (!numbers || numbers.length !== expectedCount) {
-      return res.status(400).json({
-        success: false,
-        error: `Expected ${expectedCount} numbers for ${gameType}`
-      });
-    }
-    
-    const result = await dbService.addLotteryResult({
-      gameType,
-      drawDate: drawDate || new Date().toISOString().split('T')[0],
-      numbers,
-      bonus: gameType !== '539' ? bonus : null,
-      source: 'manual'
-    });
-    
-    await dbService.logAdminAction(
-      req.session.user.id,
-      'ADD_HISTORICAL_RESULT',
-      { gameType, drawDate, numbers, bonus },
-      req
-    );
-    
-    res.json({
-      success: true,
-      message: 'Result added successfully',
-      result
-    });
-  } catch (error) {
-    console.error('Error adding historical result:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// POST /api/admin/historical-results/:gameType/sync - ENHANCED VERSION
-router.post('/historical-results/:gameType/sync', requireAdmin, async (req, res) => {
-  try {
-    const { gameType } = req.params;
-    const { source = 'excel' } = req.body;
-    
-    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid game type'
-      });
-    }
-    
-    console.log(`🔄 Starting ${source} sync for ${gameType}`);
-    
-    let syncResult;
-    
-    if (source === 'web') {
-      syncResult = await syncFromWeb(gameType);
-    } else {
-      syncResult = await syncFromExcel(gameType);
-    }
-    
-    await dbService.logAdminAction(
-      req.session.user.id,
-      'SYNC_DATA',
-      { 
-        gameType, 
-        source,
-        ...syncResult 
-      },
-      req
-    );
-    
-    res.json({
-      success: true,
-      message: `Sync completed for ${gameType}`,
-      ...syncResult
-    });
-  } catch (error) {
-    console.error('Error syncing data:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// DELETE /api/admin/historical-results/:gameType/:resultId
-router.delete('/historical-results/:gameType/:resultId', requireAdmin, async (req, res) => {
-  try {
-    const { gameType, resultId } = req.params;
-
-    const deleted = await dbService.deleteLotteryResult(resultId);
-
-    if (!deleted) {
-      return res.status(404).json({
-        success: false,
-        error: 'Result not found'
-      });
-    }
-
-    await dbService.logAdminAction(
-      req.session.user.id,
-      'DELETE_HISTORICAL_RESULT',
-      { gameType, resultId },
-      req
-    );
-
-    res.json({
-      success: true,
-      message: 'Result deleted successfully'
-    });
-  } catch (error) {
-    console.error('Error deleting result:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// GET /api/admin/scheduler/status/:gameType
-router.get('/scheduler/status/:gameType', requireAdmin, async (req, res) => {
-  try {
-    const { gameType } = req.params;
-    
-    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid game type'
-      });
-    }
-    
-    const status = scheduledScraper.getSchedulerStatus(gameType);
-    const job = await dbService.getSchedulerJob(gameType);
-    
-    res.json({
-      success: true,
-      status: {
-        active: status.enabled,
-        schedule: status.schedule,
-        lastRun: status.lastRun,
-        lastStatus: status.lastResult?.success ? 'success' : status.status,
-        enabled: status.enabled,
-        status: status.status,
-        nextRun: status.nextRun,
-        lastResult: status.lastResult
-      }
-    });
-  } catch (error) {
-    console.error('Error getting scheduler status:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// POST /api/admin/scheduler/start/:gameType
-router.post('/scheduler/start/:gameType', requireAdmin, async (req, res) => {
-  try {
-    const { gameType } = req.params;
-    const { schedule = '0 */6 * * *' } = req.body;
-    
-    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid game type'
-      });
-    }
-    
-    const result = scheduledScraper.startScheduler(gameType, schedule);
-    
-    await dbService.updateSchedulerJob(gameType, {
-      isActive: true,
-      schedule,
-      nextRun: new Date()
-    });
-    
-    await dbService.logAdminAction(
-      req.session.user.id,
-      'START_SCHEDULER',
-      { gameType, schedule },
-      req
-    );
-    
-    res.json(result);
-  } catch (error) {
-    console.error('Error starting scheduler:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// POST /api/admin/scheduler/stop/:gameType
-router.post('/scheduler/stop/:gameType', requireAdmin, async (req, res) => {
-  try {
-    const { gameType } = req.params;
-    
-    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid game type'
-      });
-    }
-    
-    const result = scheduledScraper.stopScheduler(gameType);
-    
-    await dbService.updateSchedulerJob(gameType, {
-      isActive: false
-    });
-    
-    await dbService.logAdminAction(
-      req.session.user.id,
-      'STOP_SCHEDULER',
-      { gameType },
-      req
-    );
-    
-    res.json(result);
-  } catch (error) {
-    console.error('Error stopping scheduler:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// POST /api/admin/scheduler/trigger/:gameType - USES REAL SCRAPER
-router.post('/scheduler/trigger/:gameType', requireAdmin, scraperLimiter, async (req, res) => {
-  try {
-    const { gameType } = req.params;
-    
-    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid game type'
-      });
-    }
-    
-    console.log(`🔧 Manual scrape triggered for ${gameType.toUpperCase()}`);
-    
-    const result = await scheduledScraper.triggerManualScrape(gameType);
-    
-    if (result.success) {
-      await dbService.logAdminAction(
-        req.session.user.id,
-        'TRIGGER_MANUAL_SCRAPE',
-        { 
-          gameType, 
-          result: {
-            success: result.success,
-            added: result.added,
-            skipped: result.skipped,
-            scraped: result.scraped,
-            total: result.total
-          }
-        },
-        req
-      );
-      
-      res.json({
-        success: true,
-        message: `Updated! ${result.added} new results added`,
-        added: result.added,
-        skipped: result.skipped,
-        total: result.total,
-        scraped: result.scraped
-      });
-    } else {
-      res.json({
-        success: false,
-        error: result.error || 'Scraping failed',
-        message: `Scraping failed: ${result.error}`,
-        added: 0
-      });
-    }
-  } catch (error) {
-    console.error('Error triggering manual scrape:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      message: `Error: ${error.message}`,
-      added: 0
-    });
-  }
-});
-
-// GET /api/admin/scheduler/status (all games)
-router.get('/scheduler/status', requireAdmin, async (req, res) => {
-  try {
-    const { gameType } = req.query;
-    
-    if (gameType && !['539', 'mark6', 'lotto649'].includes(gameType)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid game type'
-      });
-    }
-    
-    const allStatus = scheduledScraper.getSchedulerStatus();
-    const status = gameType ? { [gameType]: allStatus[gameType] } : allStatus;
-    
-    res.json({
-      success: true,
-      status,
-      presets: scheduledScraper.SCHEDULE_PRESETS
-    });
-  } catch (error) {
-    console.error('Error getting scheduler status:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// GET /api/admin/database/stats - NEW: Database statistics
+// GET /api/admin/database/stats
 router.get('/database/stats', requireAdmin, async (req, res) => {
   try {
     const stats = await dbService.getDatabaseStats();
@@ -815,7 +1062,7 @@ router.get('/database/stats', requireAdmin, async (req, res) => {
   }
 });
 
-// POST /api/admin/database/verify - NEW: Verify database integrity
+// POST /api/admin/database/verify/:gameType
 router.post('/database/verify/:gameType', requireAdmin, async (req, res) => {
   try {
     const { gameType } = req.params;
@@ -864,12 +1111,15 @@ router.post('/export/:gameType', requireAdmin, async (req, res) => {
     const result = await scheduledScraper.exportToExcel(gameType);
     
     if (result.success) {
-      await dbService.logAdminAction(
-        req.session.user.id,
-        'EXPORT_TO_EXCEL',
-        { gameType, filename: result.filename, count: result.count },
-        req
-      );
+      const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
+      if (userId) {
+        await dbService.logAdminAction(
+          userId,
+          'EXPORT_TO_EXCEL',
+          { gameType, filename: result.filename, count: result.count },
+          req
+        );
+      }
       
       res.json(result);
     } else {
@@ -920,6 +1170,20 @@ router.get('/logs', requireAdmin, async (req, res) => {
       error: error.message
     });
   }
+});
+
+// Test route - GET /api/admin/test
+router.get('/test', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Admin routes are working',
+    session: {
+      hasSession: !!req.session,
+      userId: req.session?.userId || null,
+      user: req.session?.user?.username || null
+    },
+    timestamp: new Date().toISOString()
+  });
 });
 
 module.exports = router;
