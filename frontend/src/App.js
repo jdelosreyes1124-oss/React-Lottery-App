@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Brain, Activity, AlertCircle, CheckCircle2, Zap, TrendingUp, Loader2, Database, Shield, Lock, User, LogOut, X, Info, Calendar, RotateCw, Pipette } from 'lucide-react';
-import ConnectionTest from './ConnectionTest';  // ADD THIS IMPORT FOR DEBUG COMPONENT
+import ConnectionTest from './ConnectionTest';  // Keep the debug component
 
 // API Configuration
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://lottery-backend-tdqv.onrender.com/api';
 console.log('✅ API_BASE_URL:', API_BASE_URL);
+
 // User roles
 const USER_ROLES = {
   ADMIN: 'admin',
@@ -1022,7 +1023,7 @@ const AllPastResultsModal = ({ gameType, onClose }) => {
 };
 
 // Admin Panel Component
-const AdminPanel = ({ user }) => {
+const AdminPanel = ({ user, onClose }) => {
   const [activeTab, setActiveTab] = useState('539');
   const [historicalResults, setHistoricalResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -1118,6 +1119,9 @@ const AdminPanel = ({ user }) => {
                 <Shield className="h-8 w-8" />
                 <h1 className="text-2xl font-bold">Admin Panel - Historical Data</h1>
               </div>
+              <button onClick={onClose} className="text-white hover:bg-white hover:bg-opacity-20 p-2 rounded-lg">
+                <X size={24} />
+              </button>
             </div>
           </div>
 
@@ -1339,7 +1343,7 @@ const AddResultModal = ({ gameType, onAdd, onClose }) => {
   );
 };
 
-// Auth Provider Context
+// Auth Provider Context (Simple version for admin only)
 const AuthContext = React.createContext(null);
 
 const AuthProvider = ({ children }) => {
@@ -1391,8 +1395,8 @@ const useAuth = () => {
   return context;
 };
 
-// Login Component
-const LoginForm = ({ onLogin }) => {
+// Login Modal for Admin Access
+const LoginModal = ({ onLogin, onClose }) => {
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -1406,6 +1410,8 @@ const LoginForm = ({ onLogin }) => {
       const response = await onLogin(credentials);
       if (!response.success) {
         setError(response.error || 'Login failed');
+      } else {
+        onClose();
       }
     } catch (err) {
       setError(err.message || 'Login failed');
@@ -1415,59 +1421,66 @@ const LoginForm = ({ onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-100 to-blue-50 flex items-center justify-center px-4">
-      <div className="max-w-md w-full">
-        <div className="bg-white rounded-xl shadow-2xl p-8">
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4">
-              <Lock className="h-8 w-8 text-blue-600" />
-            </div>
-            <h2 className="text-2xl font-bold text-gray-800">Login</h2>
-            <p className="text-gray-600 mt-2">Enter your credentials to continue</p>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full">
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4">
+            <Lock className="h-8 w-8 text-blue-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800">Admin Login</h2>
+          <p className="text-gray-600 mt-2">Enter admin credentials to access panel</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Username
+            </label>
+            <input
+              type="text"
+              value={credentials.username}
+              onChange={(e) => setCredentials(prev => ({ ...prev, username: e.target.value }))}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              required
+            />
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Username
-              </label>
-              <input
-                type="text"
-                value={credentials.username}
-                onChange={(e) => setCredentials(prev => ({ ...prev, username: e.target.value }))}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                required
-              />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Password
+            </label>
+            <input
+              type="password"
+              value={credentials.password}
+              onChange={(e) => setCredentials(prev => ({ ...prev, password: e.target.value }))}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              required
+            />
+          </div>
+
+          {error && (
+            <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+              {error}
             </div>
+          )}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Password
-              </label>
-              <input
-                type="password"
-                value={credentials.password}
-                onChange={(e) => setCredentials(prev => ({ ...prev, password: e.target.value }))}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                required
-              />
-            </div>
-
-            {error && (
-              <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">
-                {error}
-              </div>
-            )}
-
+          <div className="flex space-x-3">
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 px-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-semibold hover:shadow-lg transition-all duration-200 disabled:opacity-50"
+              className="flex-1 py-3 px-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-semibold hover:shadow-lg transition-all duration-200 disabled:opacity-50"
             >
               {loading ? 'Logging in...' : 'Login'}
             </button>
-          </form>
-        </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-3 px-4 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
@@ -1600,13 +1613,14 @@ const AutomationResults = ({ results, onClear }) => {
   );
 };
 
-// Main App Component
+// Main App Component - NO LOGIN REQUIRED FOR PREDICTIONS
 function App() {
   const { user, login, logout, loading: authLoading } = useAuth();
   const [predictions, setPredictions] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [selectedGame, setSelectedGame] = useState(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const [showAllPastResults, setShowAllPastResults] = useState(null);
   const [showRollingPrediction, setShowRollingPrediction] = useState(null);
   const [showLottoPicker, setShowLottoPicker] = useState(null);
@@ -1764,6 +1778,14 @@ function App() {
     setAutomationResults(prev => ({ ...prev, [gameType]: null }));
   };
 
+  const handleAdminClick = () => {
+    if (user && user.role === USER_ROLES.ADMIN) {
+      setShowAdminPanel(true);
+    } else {
+      setShowLoginModal(true);
+    }
+  };
+
   const gameInfo = {
     '539': { title: '539 Lottery', description: 'Pick 8 numbers from 1-39', icon: '🎲', color: 'from-blue-500 to-blue-600' },
     'mark6': { title: 'Mark 6', description: 'Pick 6 numbers + bonus from 1-49', icon: '🎯', color: 'from-blue-500 to-blue-600' },
@@ -1790,25 +1812,23 @@ function App() {
             Advanced AI-powered lottery prediction system using machine learning algorithms
           </p>
           
-          {/* User Info & Actions */}
+          {/* Admin Access Button */}
           <div className="mt-6 flex items-center justify-center space-x-4">
-            {user ? (
+            {user && user.role === USER_ROLES.ADMIN ? (
               <>
                 <div className="flex items-center space-x-2 px-4 py-2 bg-white rounded-lg shadow">
                   <User className="h-5 w-5 text-gray-600" />
                   <span className="font-medium">{user.username}</span>
-                  <span className="text-sm text-gray-500">({user.role})</span>
+                  <span className="text-sm text-gray-500">(Admin)</span>
                 </div>
                 
-                {user.role === USER_ROLES.ADMIN && (
-                  <button
-                    onClick={() => setShowAdminPanel(!showAdminPanel)}
-                    className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 flex items-center space-x-2"
-                  >
-                    <Shield className="h-5 w-5" />
-                    <span>Admin Panel</span>
-                  </button>
-                )}
+                <button
+                  onClick={() => setShowAdminPanel(true)}
+                  className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 flex items-center space-x-2"
+                >
+                  <Shield className="h-5 w-5" />
+                  <span>Admin Panel</span>
+                </button>
                 
                 <button
                   onClick={logout}
@@ -1819,197 +1839,192 @@ function App() {
                 </button>
               </>
             ) : (
-              <div className="text-gray-600">
-                Login for full features
-              </div>
+              <button
+                onClick={handleAdminClick}
+                className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 flex items-center space-x-2"
+              >
+                <Shield className="h-5 w-5" />
+                <span>Admin Access</span>
+              </button>
             )}
           </div>
         </header>
 
-        {!user ? (
-          <LoginForm onLogin={login} />
-        ) : (
-          <>
-            {showAdminPanel && user.role === USER_ROLES.ADMIN && (
-              <AdminPanel user={user} />
-            )}
+        {/* Main Prediction Cards - Available to Everyone */}
+        <div className="grid md:grid-cols-3 gap-6 max-w-6xl mx-auto">
+          {Object.entries(gameInfo).map(([gameType, info]) => (
+            <div
+              key={gameType}
+              className={`
+                bg-white rounded-xl shadow-lg p-6 transform transition-all duration-200
+                hover:scale-105 hover:shadow-xl cursor-pointer border-2
+                ${selectedGame === gameType 
+                  ? 'border-blue-500 ring-2 ring-blue-300' 
+                  : 'border-transparent hover:border-blue-300'}
+              `}
+              onClick={() => setSelectedGame(gameType)}
+            >
+              <div className="text-center mb-4">
+                <div className="text-4xl mb-2">{info.icon}</div>
+                <h3 className="text-xl font-bold text-gray-800">{info.title}</h3>
+                <p className="text-gray-600 text-sm">{info.description}</p>
+              </div>
 
-            <div className="grid md:grid-cols-3 gap-6 max-w-6xl mx-auto">
-              {Object.entries(gameInfo).map(([gameType, info]) => (
-                <div
-                  key={gameType}
-                  className={`
-                    bg-white rounded-xl shadow-lg p-6 transform transition-all duration-200
-                    hover:scale-105 hover:shadow-xl cursor-pointer border-2
-                    ${selectedGame === gameType 
-                      ? 'border-blue-500 ring-2 ring-blue-300' 
-                      : 'border-transparent hover:border-blue-300'}
-                  `}
-                  onClick={() => setSelectedGame(gameType)}
-                >
-                  <div className="text-center mb-4">
-                    <div className="text-4xl mb-2">{info.icon}</div>
-                    <h3 className="text-xl font-bold text-gray-800">{info.title}</h3>
-                    <p className="text-gray-600 text-sm">{info.description}</p>
+              {selectedGame === gameType && (
+                <div className="space-y-4">
+                  <div className="space-y-3">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handlePredict(gameType);
+                      }}
+                      disabled={isLoading}
+                      className={`w-full py-3 px-4 bg-gradient-to-r ${info.color} text-white rounded-lg font-semibold hover:shadow-lg hover:scale-105 transition-all duration-200 disabled:opacity-50 flex items-center justify-center space-x-2`}
+                    >
+                      {isLoading ? (
+                        <>
+                          <LoadingSpinner size="sm" />
+                          <span>Generating...</span>
+                        </>
+                      ) : (
+                        <>
+                          <TrendingUp size={20} />
+                          <span>Generate Prediction</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowAllPastResults(gameType);
+                      }}
+                      className="w-full py-2 px-4 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg font-medium hover:shadow-lg hover:scale-105 transition-all duration-200 flex items-center justify-center space-x-2"
+                    >
+                      <Database className="h-4 w-4" />
+                      <span>All Past Results</span>
+                    </button>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowRollingPrediction(gameType);
+                      }}
+                      className="w-full py-2 px-4 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg font-medium hover:shadow-lg hover:scale-105 transition-all duration-200 flex items-center justify-center space-x-2"
+                    >
+                      <RotateCw className="h-4 w-4" />
+                      <span>Rolling Prediction</span>
+                    </button>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowLottoPicker(gameType);
+                      }}
+                      className="w-full py-2 px-4 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg font-medium hover:shadow-lg hover:scale-105 transition-all duration-200 flex items-center justify-center space-x-2"
+                    >
+                      <Zap className="h-4 w-4" />
+                      <span>Lotto Picker</span>
+                    </button>
+
+                    <CustomSlider
+                      value={FREQUENCY_OPTIONS.findIndex(opt => opt.value === selectedFrequencyDays[gameType])}
+                      max={FREQUENCY_OPTIONS.length - 1}
+                      onChange={(e) => handleFrequencyChange(gameType, parseInt(e.target.value))}
+                      disabled={isLoading}
+                      label={`Based on: ${FREQUENCY_OPTIONS.find(opt => opt.value === selectedFrequencyDays[gameType])?.label}`}
+                      color="blue"
+                      icon={TrendingUp}
+                    />
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRunAutomation(gameType);
+                      }}
+                      disabled={isLoading || isAutomationRunning}
+                      className="w-full py-3 px-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-semibold hover:shadow-lg hover:scale-105 transition-all duration-200 disabled:opacity-50 flex items-center justify-center space-x-2"
+                    >
+                      {isAutomationRunning ? (
+                        <>
+                          <LoadingSpinner size="sm" />
+                          <span>Running...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Zap size={18} />
+                          <span>Run Automation</span>
+                        </>
+                      )}
+                    </button>
+
+                    <CustomSlider
+                      value={MULTIPLIER_OPTIONS.findIndex(opt => opt.value === selectedMultipliers[gameType])}
+                      max={MULTIPLIER_OPTIONS.length - 1}
+                      onChange={(e) => handleMultiplierChange(gameType, parseInt(e.target.value))}
+                      disabled={isLoading || isAutomationRunning}
+                      label={`Iterations: ${MULTIPLIER_OPTIONS.find(opt => opt.value === selectedMultipliers[gameType])?.label}`}
+                      color="green"
+                      icon={Zap}
+                    />
                   </div>
 
-                  {selectedGame === gameType && (
+                  {automationResults[gameType] && (
+                    <AutomationResults
+                      results={automationResults[gameType]}
+                      onClear={() => handleClearAutomation(gameType)}
+                    />
+                  )}
+
+                  {predictions[gameType] && (
                     <div className="space-y-4">
-                      <div className="space-y-3">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handlePredict(gameType);
-                          }}
-                          disabled={isLoading}
-                          className={`w-full py-3 px-4 bg-gradient-to-r ${info.color} text-white rounded-lg font-semibold hover:shadow-lg hover:scale-105 transition-all duration-200 disabled:opacity-50 flex items-center justify-center space-x-2`}
-                        >
-                          {isLoading ? (
-                            <>
-                              <LoadingSpinner size="sm" />
-                              <span>Generating...</span>
-                            </>
-                          ) : (
-                            <>
-                              <TrendingUp size={20} />
-                              <span>Generate Prediction</span>
-                            </>
-                          )}
-                        </button>
+                      <div className="text-center">
+                        <h4 className="font-semibold text-gray-700 mb-3">Predicted Numbers</h4>
+                        
+                        <div className="mb-4">
+                          <div className="flex flex-wrap justify-center gap-2">
+                            {predictions[gameType].numbers?.map((number, index) => (
+                              <NumberBall 
+                                key={`${gameType}-${number}-${index}`} 
+                                number={number} 
+                                delay={index * 100}
+                                size="lg"
+                              />
+                            ))}
+                          </div>
+                        </div>
 
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowAllPastResults(gameType);
-                          }}
-                          className="w-full py-2 px-4 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg font-medium hover:shadow-lg hover:scale-105 transition-all duration-200 flex items-center justify-center space-x-2"
-                        >
-                          <Database className="h-4 w-4" />
-                          <span>All Past Results</span>
-                        </button>
-
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowRollingPrediction(gameType);
-                          }}
-                          className="w-full py-2 px-4 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg font-medium hover:shadow-lg hover:scale-105 transition-all duration-200 flex items-center justify-center space-x-2"
-                        >
-                          <RotateCw className="h-4 w-4" />
-                          <span>Rolling Prediction</span>
-                        </button>
-
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowLottoPicker(gameType);
-                          }}
-                          className="w-full py-2 px-4 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg font-medium hover:shadow-lg hover:scale-105 transition-all duration-200 flex items-center justify-center space-x-2"
-                        >
-                          <Zap className="h-4 w-4" />
-                          <span>Lotto Picker</span>
-                        </button>
-
-                        <CustomSlider
-                          value={FREQUENCY_OPTIONS.findIndex(opt => opt.value === selectedFrequencyDays[gameType])}
-                          max={FREQUENCY_OPTIONS.length - 1}
-                          onChange={(e) => handleFrequencyChange(gameType, parseInt(e.target.value))}
-                          disabled={isLoading}
-                          label={`Based on: ${FREQUENCY_OPTIONS.find(opt => opt.value === selectedFrequencyDays[gameType])?.label}`}
-                          color="blue"
-                          icon={TrendingUp}
-                        />
-
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRunAutomation(gameType);
-                          }}
-                          disabled={isLoading || isAutomationRunning}
-                          className="w-full py-3 px-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-semibold hover:shadow-lg hover:scale-105 transition-all duration-200 disabled:opacity-50 flex items-center justify-center space-x-2"
-                        >
-                          {isAutomationRunning ? (
-                            <>
-                              <LoadingSpinner size="sm" />
-                              <span>Running...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Zap size={18} />
-                              <span>Run Automation</span>
-                            </>
-                          )}
-                        </button>
-
-                        <CustomSlider
-                          value={MULTIPLIER_OPTIONS.findIndex(opt => opt.value === selectedMultipliers[gameType])}
-                          max={MULTIPLIER_OPTIONS.length - 1}
-                          onChange={(e) => handleMultiplierChange(gameType, parseInt(e.target.value))}
-                          disabled={isLoading || isAutomationRunning}
-                          label={`Iterations: ${MULTIPLIER_OPTIONS.find(opt => opt.value === selectedMultipliers[gameType])?.label}`}
-                          color="green"
-                          icon={Zap}
-                        />
-                      </div>
-
-                      {automationResults[gameType] && (
-                        <AutomationResults
-                          results={automationResults[gameType]}
-                          onClear={() => handleClearAutomation(gameType)}
-                        />
-                      )}
-
-                      {predictions[gameType] && (
-                        <div className="space-y-4">
-                          <div className="text-center">
-                            <h4 className="font-semibold text-gray-700 mb-3">Predicted Numbers</h4>
-                            
-                            <div className="mb-4">
-                              <div className="flex flex-wrap justify-center gap-2">
-                                {predictions[gameType].numbers?.map((number, index) => (
-                                  <NumberBall 
-                                    key={`${gameType}-${number}-${index}`} 
-                                    number={number} 
-                                    delay={index * 100}
-                                    size="lg"
-                                  />
-                                ))}
-                              </div>
+                        {predictions[gameType].bonus && (
+                          <div className="mb-4">
+                            <p className="text-sm text-gray-600 mb-2">Bonus</p>
+                            <div className="flex justify-center">
+                              <NumberBall 
+                                number={predictions[gameType].bonus} 
+                                isBonus={true}
+                                size="xl"
+                              />
                             </div>
+                          </div>
+                        )}
 
-                            {predictions[gameType].bonus && (
-                              <div className="mb-4">
-                                <p className="text-sm text-gray-600 mb-2">Bonus</p>
-                                <div className="flex justify-center">
-                                  <NumberBall 
-                                    number={predictions[gameType].bonus} 
-                                    isBonus={true}
-                                    size="xl"
-                                  />
-                                </div>
-                              </div>
-                            )}
-
-                            <div className="p-3 bg-gray-50 rounded-lg">
-                              <div className="text-xs text-gray-600">
-                                <div className="flex justify-between">
-                                  <span>Based on:</span>
-                                  <span className="font-semibold">
-                                    {FREQUENCY_OPTIONS.find(opt => opt.value === selectedFrequencyDays[gameType])?.label}
-                                  </span>
-                                </div>
-                              </div>
+                        <div className="p-3 bg-gray-50 rounded-lg">
+                          <div className="text-xs text-gray-600">
+                            <div className="flex justify-between">
+                              <span>Based on:</span>
+                              <span className="font-semibold">
+                                {FREQUENCY_OPTIONS.find(opt => opt.value === selectedFrequencyDays[gameType])?.label}
+                              </span>
                             </div>
                           </div>
                         </div>
-                      )}
+                      </div>
                     </div>
                   )}
                 </div>
-              ))}
+              )}
             </div>
-          </>
-        )}
+          ))}
+        </div>
 
         <footer className="text-center py-6 text-gray-600 text-sm">
           <div className="flex items-center justify-center space-x-2 mb-2">
@@ -2019,6 +2034,7 @@ function App() {
         </footer>
       </div>
 
+      {/* Modals */}
       {showAllPastResults && (
         <AllPastResultsModal 
           gameType={showAllPastResults} 
@@ -2039,8 +2055,22 @@ function App() {
           onClose={() => setShowLottoPicker(null)} 
         />
       )}
+
+      {showLoginModal && (
+        <LoginModal 
+          onLogin={login}
+          onClose={() => setShowLoginModal(false)}
+        />
+      )}
+
+      {showAdminPanel && user && user.role === USER_ROLES.ADMIN && (
+        <AdminPanel 
+          user={user}
+          onClose={() => setShowAdminPanel(false)}
+        />
+      )}
       
-      {/* ADD CONNECTION TEST COMPONENT HERE */}
+      {/* Connection Test Component */}
       <ConnectionTest />
     </div>
   );
