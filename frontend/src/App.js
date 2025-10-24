@@ -1858,10 +1858,31 @@ const AutomatedScheduler = ({ gameType }) => {
         showNotification(`Updated! ${response.added} new results added`, 'success');
         loadSchedulerStatus();
       } else {
-        showNotification(response.error || 'Manual update failed', 'error');
+        // Check for Chrome browser error
+        const errorMsg = response.error || 'Manual update failed';
+        if (errorMsg.includes('google-chrome-stable') || errorMsg.includes('Browser was not found')) {
+          showNotification('⚠️ Chrome browser not installed on server. This is a server configuration issue.', 'error');
+          // Provide helpful information
+          setTimeout(() => {
+            showNotification('💡 Contact your administrator to install Chrome/Chromium on the server for web scraping to work.', 'info');
+          }, 3000);
+        } else if (errorMsg.includes('executablePath')) {
+          showNotification('⚠️ Browser configuration error. The server needs Chrome installed.', 'error');
+        } else {
+          showNotification(errorMsg, 'error');
+        }
       }
     } catch (error) {
-      showNotification(error.message, 'error');
+      const errorMsg = error.message || 'Unknown error';
+      // Handle Chrome browser not found error
+      if (errorMsg.includes('google-chrome-stable') || errorMsg.includes('executablePath')) {
+        showNotification('❌ Chrome browser not available on server', 'error');
+        setTimeout(() => {
+          showNotification('ℹ️ The server administrator needs to install Chrome or Chromium for the scraper to work', 'info');
+        }, 2000);
+      } else {
+        showNotification(errorMsg, 'error');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -1891,10 +1912,12 @@ const AutomatedScheduler = ({ gameType }) => {
   return (
     <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg border-2 border-blue-200">
       {notification && (
-        <div className={`mb-3 p-2 rounded text-sm ${
-          notification.type === 'success' ? 'bg-green-100 text-green-800' :
-          notification.type === 'error' ? 'bg-red-100 text-red-800' :
-          'bg-blue-100 text-blue-800'
+        <div className={`mb-3 p-3 rounded-lg text-sm font-medium border-2 shadow-sm ${
+          notification.type === 'success' ? 'bg-green-100 text-green-800 border-green-300' :
+          notification.type === 'error' ? 'bg-red-100 text-red-800 border-red-300' :
+          notification.type === 'warning' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
+          notification.type === 'info' ? 'bg-blue-100 text-blue-800 border-blue-300' :
+          'bg-gray-100 text-gray-800 border-gray-300'
         }`}>
           {notification.message}
         </div>
@@ -2630,6 +2653,30 @@ const WebScraperPanel = ({ gameType, onClose }) => {
               <li>• Creates automatic backups before updating</li>
               <li>• No manual intervention required once enabled</li>
             </ul>
+          </div>
+
+          <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <h4 className="font-semibold text-yellow-900 mb-2 flex items-center space-x-2">
+              <AlertCircle className="h-4 w-4" />
+              <span>⚠️ Server Requirements</span>
+            </h4>
+            <div className="text-sm text-yellow-800 space-y-2">
+              <p className="font-medium">
+                The web scraper requires Chrome/Chromium browser on the server.
+              </p>
+              <p className="text-xs">
+                If you see: <span className="font-mono bg-red-100 text-red-700 px-1 rounded">"Browser was not found at the configured executablePath"</span>
+              </p>
+              <p className="text-xs">
+                Solution: Ask your server administrator to install Chrome:
+              </p>
+              <div className="bg-gray-800 text-gray-100 p-2 rounded text-xs font-mono mt-2">
+                <div className="text-gray-400"># Ubuntu/Debian:</div>
+                <div className="text-green-400">sudo apt-get install google-chrome-stable</div>
+                <div className="text-gray-400 mt-1"># Or Chromium:</div>
+                <div className="text-green-400">sudo apt-get install chromium-browser</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
