@@ -87,7 +87,7 @@ async function getMagayoPrediction(gameType, period, extended = false) {
   }
 }
 
-// Helper Function: Local Algorithm Prediction
+// Helper Function: Local Algorithm Prediction (FIXED)
 async function getLocalPrediction(gameType, period, extended = false, frequency) {
   console.log('Using local algorithm for prediction...');
   
@@ -99,20 +99,27 @@ async function getLocalPrediction(gameType, period, extended = false, frequency)
   
   const config = gameConfig[gameType];
   const numbers = [];
-  const candidates = [...frequency.mainNumbers];
   
-  while (numbers.length < config.numbers && candidates.length > 0) {
-    const weightedIndex = Math.floor(Math.random() * Math.min(10, candidates.length));
-    const selected = candidates.splice(weightedIndex, 1)[0];
-    if (selected) {
-      numbers.push(selected.number);
-    }
+  // Create a pool of ALL numbers with weights
+  const allNumbers = [];
+  for (let i = 1; i <= config.max; i++) {
+    // Find frequency for this number
+    const freqData = frequency.mainNumbers.find(f => f.number === i);
+    const weight = freqData ? freqData.count : 1; // Use count if available, else 1
+    allNumbers.push({ number: i, weight });
   }
   
+  // Sort by weight for weighted selection
+  allNumbers.sort((a, b) => b.weight - a.weight);
+  
+  // Select numbers with weighted probability
   while (numbers.length < config.numbers) {
-    const num = Math.floor(Math.random() * config.max) + 1;
-    if (!numbers.includes(num)) {
-      numbers.push(num);
+    // Use power function for weighted selection (higher weight = higher chance)
+    const weightedIndex = Math.floor(Math.pow(Math.random(), 2) * allNumbers.length);
+    const selected = allNumbers[weightedIndex];
+    
+    if (!numbers.includes(selected.number)) {
+      numbers.push(selected.number);
     }
   }
   
@@ -272,23 +279,14 @@ router.get('/frequency/:gameType', async (req, res) => {
     
     const days = daysMap[period] || 30;
     const frequency = await dbService.getNumberFrequency(gameType, days);
-
+    
     res.json({
       success: true,
-      analysis: {
-        hot: frequency.mainNumbers.slice(0, 10),
-        cold: frequency.mainNumbers.slice(-10).reverse(),
-        totalDrawsAnalyzed: frequency.totalDraws,
-        period: frequency.period,
-        dateRange: {
-          from: frequency.startDate,
-          to: frequency.endDate
-        },
-        bonusFrequency: frequency.bonusNumbers
-      }
+      ...frequency,
+      period
     });
   } catch (error) {
-    console.error('Error getting frequency:', error);
+    console.error('Error getting frequency data:', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -296,13 +294,13 @@ router.get('/frequency/:gameType', async (req, res) => {
   }
 });
 
-// GET /api/predictions/past-7-days/:gameType
-router.get('/past-7-days/:gameType', async (req, res) => {
+// GET /api/predictions/patterns/:gameType
+router.get('/patterns/:gameType', async (req, res) => {
   try {
     const { gameType } = req.params;
+    const { period = '1month' } = req.query;
     
-    console.log('=== PAST 7 DAYS ANALYSIS START ===');
-    console.log('Game Type:', gameType);
+    console.log('Patterns request for:', gameType, 'period:', period);
     
     if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
       return res.status(400).json({
@@ -311,96 +309,34 @@ router.get('/past-7-days/:gameType', async (req, res) => {
       });
     }
 
-    const today = new Date();
-    const sevenDaysAgo = new Date(today);
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const daysMap = {
+      '1week': 7,
+      '1month': 30,
+      '3months': 90,
+      'all': 365
+    };
     
-    const todayStr = today.toISOString().split('T')[0];
-    const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
-
-    console.log('Date range:', sevenDaysAgoStr, 'to', todayStr);
-
-    const results = await db.LotteryResult.find({
-      gameType: gameType,
-      drawDate: {
-        $gte: sevenDaysAgoStr,
-        $lte: todayStr
-      }
-    }).sort({ drawDate: -1 });
-
-    console.log('Results found:', results.length);
-
-    if (results.length === 0) {
-      console.log('No results in past 7 days, returning empty data');
-      return res.json({
-        success: true,
-        message: 'No draws found in the past 7 days',
-        totalDraws: 0,
-        dateRange: {
-          from: sevenDaysAgoStr,
-          to: todayStr
-        },
-        topNumbers: []
-      });
-    }
-
-    const frequencyMap = {};
-    const maxNumber = gameType === '539' ? 39 : 49;
+    const days = daysMap[period] || 30;
+    const patterns = await dbService.getPatterns(gameType, days);
     
-    for (let i = 1; i <= maxNumber; i++) {
-      frequencyMap[i] = 0;
-    }
-
-    results.forEach(result => {
-      if (result.numbers && Array.isArray(result.numbers)) {
-        result.numbers.forEach(num => {
-          if (frequencyMap[num] !== undefined) {
-            frequencyMap[num]++;
-          }
-        });
-      }
-    });
-
-    const topNumbers = Object.entries(frequencyMap)
-      .map(([number, frequency]) => ({
-        number: parseInt(number),
-        frequency,
-        percentage: ((frequency / results.length) * 100).toFixed(1)
-      }))
-      .filter(item => item.frequency > 0)
-      .sort((a, b) => b.frequency - a.frequency);
-
-    console.log('Top 5 numbers:', topNumbers.slice(0, 5).map(n => `${n.number}(${n.frequency})`).join(', '));
-
     res.json({
       success: true,
-      totalDraws: results.length,
-      dateRange: {
-        from: sevenDaysAgoStr,
-        to: todayStr
-      },
-      topNumbers,
-      gameType
+      ...patterns,
+      period
     });
-
-    console.log('=== PAST 7 DAYS ANALYSIS END ===\n');
   } catch (error) {
-    console.error('Error getting past 7 days analysis:', error);
+    console.error('Error getting patterns:', error);
     res.status(500).json({
       success: false,
-      error: error.message,
-      message: 'Failed to analyze past 7 days data'
+      error: error.message
     });
   }
 });
 
-// GET /api/predictions/all-past-results/:gameType
-router.get('/all-past-results/:gameType', async (req, res) => {
+// GET /api/predictions/due-numbers/:gameType
+router.get('/due-numbers/:gameType', async (req, res) => {
   try {
     const { gameType } = req.params;
-    
-    console.log('=== ALL PAST RESULTS ANALYSIS START ===');
-    console.log('Game Type:', gameType);
     
     if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
       return res.status(400).json({
@@ -409,90 +345,176 @@ router.get('/all-past-results/:gameType', async (req, res) => {
       });
     }
 
-    const results = await db.LotteryResult.find({
-      gameType: gameType
-    }).sort({ drawDate: -1 });
-
-    console.log('Total results found:', results.length);
-
-    if (results.length === 0) {
-      console.log('No results found, returning empty data');
-      return res.json({
-        success: true,
-        message: 'No draws found in database',
-        totalDraws: 0,
-        dateRange: {
-          from: null,
-          to: null
-        },
-        topNumbers: []
-      });
-    }
-
-    const dates = results.map(r => r.drawDate).filter(d => d);
-    const oldestDate = dates[dates.length - 1];
-    const newestDate = dates[0];
-
-    console.log('Date range:', oldestDate, 'to', newestDate);
-
-    const frequencyMap = {};
-    const maxNumber = gameType === '539' ? 39 : 49;
+    const dueNumbers = await dbService.getDueNumbers(gameType, 10);
     
-    for (let i = 1; i <= maxNumber; i++) {
-      frequencyMap[i] = 0;
-    }
-
-    results.forEach(result => {
-      if (result.numbers && Array.isArray(result.numbers)) {
-        result.numbers.forEach(num => {
-          if (frequencyMap[num] !== undefined) {
-            frequencyMap[num]++;
-          }
-        });
-      }
-    });
-
-    const topNumbers = Object.entries(frequencyMap)
-      .map(([number, frequency]) => ({
-        number: parseInt(number),
-        frequency,
-        percentage: ((frequency / results.length) * 100).toFixed(1)
-      }))
-      .filter(item => item.frequency > 0)
-      .sort((a, b) => b.frequency - a.frequency);
-
-    console.log('Top 5 numbers:', topNumbers.slice(0, 5).map(n => `${n.number}(${n.frequency})`).join(', '));
-
     res.json({
       success: true,
-      totalDraws: results.length,
-      dateRange: {
-        from: oldestDate,
-        to: newestDate
-      },
-      topNumbers,
-      gameType
+      dueNumbers
     });
-
-    console.log('=== ALL PAST RESULTS ANALYSIS END ===\n');
   } catch (error) {
-    console.error('Error getting all past results analysis:', error);
+    console.error('Error getting due numbers:', error);
     res.status(500).json({
       success: false,
-      error: error.message,
-      message: 'Failed to analyze all past results'
+      error: error.message
     });
   }
 });
 
-// PUBLIC ROUTE - No admin authentication required
-// GET /api/predictions/public-results/:gameType
-router.get('/public-results/:gameType', async (req, res) => {
+// GET /api/predictions/consecutive-patterns/:gameType
+router.get('/consecutive-patterns/:gameType', async (req, res) => {
   try {
     const { gameType } = req.params;
-    const { limit = 999999 } = req.query;
+    const { period = '1month' } = req.query;
     
-    console.log('Public results request for:', gameType);
+    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid game type'
+      });
+    }
+
+    const daysMap = {
+      '1week': 7,
+      '1month': 30,
+      '3months': 90,
+      'all': 365
+    };
+    
+    const days = daysMap[period] || 30;
+    const patterns = await dbService.getConsecutivePatterns(gameType, days);
+    
+    res.json({
+      success: true,
+      ...patterns,
+      period
+    });
+  } catch (error) {
+    console.error('Error getting consecutive patterns:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// GET /api/predictions/sum-range/:gameType
+router.get('/sum-range/:gameType', async (req, res) => {
+  try {
+    const { gameType } = req.params;
+    const { period = '1month' } = req.query;
+    
+    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid game type'
+      });
+    }
+
+    const daysMap = {
+      '1week': 7,
+      '1month': 30,
+      '3months': 90,
+      'all': 365
+    };
+    
+    const days = daysMap[period] || 30;
+    const sumRange = await dbService.getSumRangeAnalysis(gameType, days);
+    
+    res.json({
+      success: true,
+      ...sumRange,
+      period
+    });
+  } catch (error) {
+    console.error('Error getting sum range analysis:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// GET /api/predictions/gap-analysis/:gameType
+router.get('/gap-analysis/:gameType', async (req, res) => {
+  try {
+    const { gameType } = req.params;
+    const { period = '1month' } = req.query;
+    
+    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid game type'
+      });
+    }
+
+    const daysMap = {
+      '1week': 7,
+      '1month': 30,
+      '3months': 90,
+      'all': 365
+    };
+    
+    const days = daysMap[period] || 30;
+    const gapAnalysis = await dbService.getGapAnalysis(gameType, days);
+    
+    res.json({
+      success: true,
+      ...gapAnalysis,
+      period
+    });
+  } catch (error) {
+    console.error('Error getting gap analysis:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// GET /api/predictions/statistical-analysis/:gameType
+router.get('/statistical-analysis/:gameType', async (req, res) => {
+  try {
+    const { gameType } = req.params;
+    const { period = '1month' } = req.query;
+    
+    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid game type'
+      });
+    }
+
+    const daysMap = {
+      '1week': 7,
+      '1month': 30,
+      '3months': 90,
+      'all': 365
+    };
+    
+    const days = daysMap[period] || 30;
+    const stats = await dbService.getStatisticalAnalysis(gameType, days);
+    
+    res.json({
+      success: true,
+      ...stats,
+      period
+    });
+  } catch (error) {
+    console.error('Error getting statistical analysis:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// GET /api/predictions/public/results/:gameType
+router.get('/public/results/:gameType', async (req, res) => {
+  try {
+    const { gameType } = req.params;
+    const { limit = 10 } = req.query;
+    
+    console.log('Public results request for:', gameType, 'limit:', limit);
     
     if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
       return res.status(400).json({
@@ -501,15 +523,21 @@ router.get('/public-results/:gameType', async (req, res) => {
       });
     }
     
-    const results = await db.LotteryResult.find({ gameType })
-      .limit(parseInt(limit))
+    const modelMap = {
+      '539': db.LotteryResult539,
+      'mark6': db.LotteryResultMark6,
+      'lotto649': db.LotteryResultLotto649
+    };
+    
+    const Model = modelMap[gameType];
+    const results = await Model.find()
       .sort({ drawDate: -1 })
-      .lean();
-    
-    console.log(`Found ${results.length} results for ${gameType}`);
+      .limit(parseInt(limit))
+      .select('drawDate numbers bonus');
     
     res.json({
       success: true,
+      gameType,
       results: results.map(r => ({
         id: r._id,
         drawDate: r.drawDate,
@@ -605,7 +633,7 @@ router.post('/:gameType', async (req, res) => {
   }
 });
 
-// POST /api/predictions/:gameType/automation
+// POST /api/predictions/:gameType/automation (FIXED)
 router.post('/:gameType/automation', async (req, res) => {
   try {
     const { gameType } = req.params;
@@ -649,10 +677,30 @@ router.post('/:gameType/automation', async (req, res) => {
     const combinations = new Set();
     const frequencyTracker = {};
     
-    // Initialize frequency tracker
+    // Initialize frequency tracker for ALL numbers
     for (let i = 1; i <= config.maxNumber; i++) {
       frequencyTracker[i] = 0;
     }
+    
+    // Create a weighted pool of ALL numbers (1 to maxNumber)
+    const createWeightedPool = () => {
+      const pool = [];
+      
+      // Add all numbers with their weights
+      for (let num = 1; num <= config.maxNumber; num++) {
+        // Find frequency data for this number
+        const freqData = frequency.mainNumbers.find(f => f.number === num);
+        const weight = freqData ? Math.max(freqData.count, 1) : 1; // Use count if available, else 1
+        
+        // Add the number to pool based on weight (more weight = more copies in pool)
+        // This ensures all numbers 1-39 are represented
+        for (let w = 0; w < weight; w++) {
+          pool.push(num);
+        }
+      }
+      
+      return pool;
+    };
     
     // Generate combinations using weighted random selection
     let attempts = 0;
@@ -662,25 +710,30 @@ router.post('/:gameType/automation', async (req, res) => {
       attempts++;
       
       const numbers = [];
-      const availableNumbers = [...frequency.mainNumbers];
+      const weightedPool = createWeightedPool();
+      const usedIndices = new Set();
       
-      // Select numbers with weighted probability
-      while (numbers.length < config.numbersPerDraw && availableNumbers.length > 0) {
-        // Top numbers have higher chance (using power of 2) - NOW SELECTS FROM ALL 39 NUMBERS
-        const maxIndex = availableNumbers.length;
-        const randomIndex = Math.floor(Math.pow(Math.random(), 2) * maxIndex);
-        
-        const selected = availableNumbers.splice(randomIndex, 1)[0];
-        if (selected && !numbers.includes(selected.number)) {
-          numbers.push(selected.number);
-        }
-      }
-      
-      // Fill remaining with random numbers if needed
+      // Select numbers from the weighted pool
       while (numbers.length < config.numbersPerDraw) {
-        const num = Math.floor(Math.random() * config.maxNumber) + 1;
-        if (!numbers.includes(num)) {
-          numbers.push(num);
+        // Use power function for biased selection towards frequent numbers
+        const poolIndex = Math.floor(Math.pow(Math.random(), 1.5) * weightedPool.length);
+        
+        if (!usedIndices.has(poolIndex)) {
+          usedIndices.add(poolIndex);
+          const selectedNumber = weightedPool[poolIndex];
+          
+          if (!numbers.includes(selectedNumber)) {
+            numbers.push(selectedNumber);
+          }
+        }
+        
+        // Fallback if we're stuck
+        if (usedIndices.size > weightedPool.length * 0.8) {
+          // Just add a random number from the full range
+          const randomNum = Math.floor(Math.random() * config.maxNumber) + 1;
+          if (!numbers.includes(randomNum)) {
+            numbers.push(randomNum);
+          }
         }
       }
       
@@ -716,6 +769,12 @@ router.post('/:gameType/automation', async (req, res) => {
     const topNumbers = frequencyData.slice(0, 10).map(item => item.number);
     
     console.log('Top 10 numbers:', topNumbers.join(', '));
+    console.log('Number range in results:', 
+      Math.min(...frequencyData.map(d => d.number)), 
+      'to', 
+      Math.max(...frequencyData.map(d => d.number))
+    );
+    console.log('Total unique numbers used:', frequencyData.length);
     console.log('=== AUTOMATION END ===\n');
     
     res.json({
@@ -731,7 +790,12 @@ router.post('/:gameType/automation', async (req, res) => {
         timestamp: new Date().toISOString(),
         period,
         gameType,
-        analysisSource: frequency.totalDraws > 0 ? 'database' : 'random'
+        analysisSource: frequency.totalDraws > 0 ? 'database' : 'random',
+        numberRange: {
+          min: Math.min(...frequencyData.map(d => d.number)),
+          max: Math.max(...frequencyData.map(d => d.number)),
+          totalUniqueNumbers: frequencyData.length
+        }
       }
     });
   } catch (error) {
@@ -741,7 +805,7 @@ router.post('/:gameType/automation', async (req, res) => {
       error: error.message
     });
   }
-}); // ← THIS WAS MISSING!
+});
 
 // GET /api/predictions/history
 router.get('/history', async (req, res) => {
