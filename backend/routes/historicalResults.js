@@ -111,7 +111,8 @@ router.get('/historical-results/539', (req, res) => {
     
     res.json({
       success: true,
-      results: results
+      results: results,
+      total: results.length  // Add total count
     });
   } catch (error) {
     console.error('Error loading results:', error);
@@ -119,11 +120,12 @@ router.get('/historical-results/539', (req, res) => {
   }
 });
 
-// POST /api/admin/historical-results/539/add n
+// POST /api/admin/historical-results/539/add
 router.post('/historical-results/539/add', (req, res) => {
   try {
     const { drawDate, numbers } = req.body;
 
+    // Validate input
     if (!drawDate || !numbers || numbers.length !== 5) {
       return res.status(400).json({
         success: false,
@@ -131,37 +133,63 @@ router.post('/historical-results/539/add', (req, res) => {
       });
     }
 
-    if (numbers.some(n => n < 1 || n > 39)) {
+    // Ensure numbers are integers
+    const parsedNumbers = numbers.map(n => parseInt(n));
+
+    // Validate number range
+    if (parsedNumbers.some(n => isNaN(n) || n < 1 || n > 39)) {
       return res.status(400).json({
         success: false,
         error: 'All numbers must be between 1 and 39'
       });
     }
 
-    if (new Set(numbers).size !== 5) {
+    // Check for duplicates
+    if (new Set(parsedNumbers).size !== 5) {
       return res.status(400).json({
         success: false,
         error: 'Numbers must be unique'
       });
     }
 
+    // Read current data
     const currentData = readExcelFile();
 
+    // Check if date already exists
+    const dateExists = currentData.some(row => row.drawDate === drawDate);
+    if (dateExists) {
+      return res.status(400).json({
+        success: false,
+        error: 'A result for this date already exists'
+      });
+    }
+
+    // Create new result
     const newResult = {
       id: currentData.length,
       drawDate,
-      numbers
+      numbers: parsedNumbers
     };
 
+    // Add to beginning of array (most recent first)
     currentData.unshift(newResult);
 
+    // Re-index all results
+    currentData.forEach((row, idx) => {
+      row.id = idx;
+    });
+
+    // Write to Excel
     if (writeExcelFile(currentData)) {
-      console.log(`✅ Added result: ${drawDate} - ${numbers.join(', ')}`);
+      console.log(`✅ Added result: ${drawDate} - ${parsedNumbers.join(', ')}`);
       
+      // Return the updated list of results
       res.json({
         success: true,
         message: 'Result added successfully',
-        result: newResult
+        result: newResult,
+        results: currentData,  // Return all results so frontend can update
+        total: currentData.length
       });
     } else {
       res.status(500).json({
@@ -174,8 +202,78 @@ router.post('/historical-results/539/add', (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
- 
-// DELETE /api/admin/historical-results/539/:id 
+
+// PUT /api/admin/historical-results/539/:id
+router.put('/historical-results/539/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { drawDate, numbers } = req.body;
+    const resultId = parseInt(id);
+
+    // Validate input
+    if (!drawDate || !numbers || numbers.length !== 5) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid data. Need drawDate and 5 numbers'
+      });
+    }
+
+    const parsedNumbers = numbers.map(n => parseInt(n));
+
+    if (parsedNumbers.some(n => isNaN(n) || n < 1 || n > 39)) {
+      return res.status(400).json({
+        success: false,
+        error: 'All numbers must be between 1 and 39'
+      });
+    }
+
+    if (new Set(parsedNumbers).size !== 5) {
+      return res.status(400).json({
+        success: false,
+        error: 'Numbers must be unique'
+      });
+    }
+
+    const currentData = readExcelFile();
+    const index = currentData.findIndex(r => r.id === resultId);
+    
+    if (index === -1) {
+      return res.status(404).json({
+        success: false,
+        error: 'Result not found'
+      });
+    }
+
+    // Update the result
+    currentData[index] = {
+      id: resultId,
+      drawDate,
+      numbers: parsedNumbers
+    };
+
+    if (writeExcelFile(currentData)) {
+      console.log(`✅ Updated result ID: ${resultId}`);
+      
+      res.json({
+        success: true,
+        message: 'Result updated successfully',
+        result: currentData[index],
+        results: currentData,
+        total: currentData.length
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to write to Excel file'
+      });
+    }
+  } catch (error) {
+    console.error('Error updating result:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// DELETE /api/admin/historical-results/539/:id
 router.delete('/historical-results/539/:id', (req, res) => {
   try {
     const { id } = req.params;
@@ -191,8 +289,10 @@ router.delete('/historical-results/539/:id', (req, res) => {
       });
     }
 
+    // Remove the result
     currentData.splice(index, 1);
 
+    // Re-index remaining results
     currentData.forEach((row, idx) => {
       row.id = idx;
     });
@@ -202,7 +302,9 @@ router.delete('/historical-results/539/:id', (req, res) => {
       
       res.json({
         success: true,
-        message: 'Result deleted successfully'
+        message: 'Result deleted successfully',
+        results: currentData,  // Return updated results
+        total: currentData.length
       });
     } else {
       res.status(500).json({
@@ -216,7 +318,7 @@ router.delete('/historical-results/539/:id', (req, res) => {
   }
 });
 
-// POST /api/admin/historical-results/539/sync 
+// POST /api/admin/historical-results/539/sync
 router.post('/historical-results/539/sync', (req, res) => {
   try {
     const results = readExcelFile();
@@ -226,7 +328,8 @@ router.post('/historical-results/539/sync', (req, res) => {
     res.json({
       success: true,
       message: `Synced ${results.length} results from Excel`,
-      results: results
+      results: results,
+      total: results.length
     });
   } catch (error) {
     console.error('Error syncing from Excel:', error);
