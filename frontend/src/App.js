@@ -1,5 +1,3 @@
-// Updated version with full admin panel fixes
-// Check console for debug output
 import React, { useState, useEffect } from 'react';
 import { Brain, Activity, AlertCircle, CheckCircle2, Zap, TrendingUp, Loader2, Database, Shield, Lock, User, LogOut, X, Info, Calendar, RotateCw, Pipette } from 'lucide-react';
 import ConnectionTest from './ConnectionTest';  // Keep the debug component
@@ -2144,9 +2142,13 @@ const AdminPanel = ({ onClose }) => {
   const loadHistoricalResults = async (gameType, page = 1, append = false) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/admin/historical-results/${gameType}?page=${page}`${API_BASE_URL}/admin/historical-results/${gameType}?page=${page}&limit=50`limit=50`, {
-      console.log("Fetching from URL:", `${API_BASE_URL}/admin/historical-results/${gameType}?page=${page}&limit=50`);
-        credentials: 'include'
+      const fetchUrl = `${API_BASE_URL}/admin/historical-results/${gameType}?page=${page}&limit=50`;
+      console.log("Fetching from URL:", fetchUrl);
+      const response = await fetch(fetchUrl, {
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json'
+        }
       });
       
       if (response.status === 401) throw new Error('Not authenticated');
@@ -2242,7 +2244,6 @@ const AdminPanel = ({ onClose }) => {
           });
         }
         console.log('Historical results loaded successfully:', resultsData.length, 'items');
-      }
       }
     } catch (error) {
       console.error('Failed to load historical results:', error);
