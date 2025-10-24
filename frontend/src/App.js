@@ -1,3 +1,5 @@
+// Updated version with full admin panel fixes
+// Check console for debug output
 import React, { useState, useEffect } from 'react';
 import { Brain, Activity, AlertCircle, CheckCircle2, Zap, TrendingUp, Loader2, Database, Shield, Lock, User, LogOut, X, Info, Calendar, RotateCw, Pipette } from 'lucide-react';
 import ConnectionTest from './ConnectionTest';  // Keep the debug component
@@ -2142,7 +2144,8 @@ const AdminPanel = ({ onClose }) => {
   const loadHistoricalResults = async (gameType, page = 1, append = false) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/admin/historical-results/${gameType}?page=${page}&limit=50`, {
+      const response = await fetch(`${API_BASE_URL}/admin/historical-results/${gameType}?page=${page}`${API_BASE_URL}/admin/historical-results/${gameType}?page=${page}&limit=50`limit=50`, {
+      console.log("Fetching from URL:", `${API_BASE_URL}/admin/historical-results/${gameType}?page=${page}&limit=50`);
         credentials: 'include'
       });
       
@@ -2186,20 +2189,60 @@ const AdminPanel = ({ onClose }) => {
       if (!response.ok) throw new Error('HTTP ' + response.status);
       
       const data = await response.json();
+      console.log('Admin Panel API Response:', data);
       
-      if (data.success) {
+      // Handle different response structures
+      let resultsData = [];
+      
+      // Check if data is an array directly
+      if (Array.isArray(data)) {
+        resultsData = data;
+      } else if (data.results) {
+        resultsData = data.results;
+      } else if (data.data) {
+        resultsData = data.data;
+      } else if (data.docs) {
+        // Some APIs return docs property
+        resultsData = data.docs;
+      }
+      
+      console.log('Extracted results data:', resultsData.length, 'items');
+      
+      // Always set the results regardless of success flag
+      if (resultsData.length > 0 || !isLoading) {
         setHistoricalResults(prev => ({
           ...prev,
           [gameType]: {
             results: append 
-              ? [...(prev[gameType]?.results || []), ...(data.results || [])]
-              : data.results || []
+              ? [...(prev[gameType]?.results || []), ...resultsData]
+              : resultsData
           }
         }));
         
+        // Handle pagination
         if (data.pagination) {
           setPagination(data.pagination);
+        } else if (data.total !== undefined || data.totalDocs !== undefined) {
+          const total = data.total || data.totalDocs || resultsData.length;
+          setPagination({
+            page: data.page || 1,
+            limit: data.limit || 50,
+            total: total,
+            totalPages: Math.ceil(total / (data.limit || 50)),
+            hasMore: data.hasNextPage || data.hasMore || false
+          });
+        } else {
+          // Default pagination if none provided
+          setPagination({
+            page: 1,
+            limit: 50,
+            total: resultsData.length,
+            totalPages: 1,
+            hasMore: false
+          });
         }
+        console.log('Historical results loaded successfully:', resultsData.length, 'items');
+      }
       }
     } catch (error) {
       console.error('Failed to load historical results:', error);
