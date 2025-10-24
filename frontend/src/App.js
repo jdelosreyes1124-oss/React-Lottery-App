@@ -205,379 +205,284 @@ getHistoricalResults: (gameType, page = 1, limit = 50) =>
     }).then(res => res.json())
 };
 
-// Lotto Picker Feature Component 
-const LottoPickerFeature = ({ gameType, onClose }) => {
-  const [predictions, setPredictions] = useState([]);
-  const [selectedNumbers, setSelectedNumbers] = useState(new Set());
-  const [frequencyData, setFrequencyData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [numberCount, setNumberCount] = useState(10);
-  const [predictionCriteria, setPredictionCriteria] = useState('balanced');
-
-  const maxNumber = gameType === '539' ? 39 : 49;
-  const requiredNumbers = gameType === '539' ? 5 : 6;
+const RollingNumber = ({ number, delay }) => {
+  const [displayNumber, setDisplayNumber] = useState(1);
+  const [isRolling, setIsRolling] = useState(true);
 
   useEffect(() => {
-    loadFrequencyData();
-  }, [gameType]);
+    let interval;
+    const startRolling = setTimeout(() => {
+      interval = setInterval(() => {
+        setDisplayNumber(prev => prev >= 39 ? 1 : prev + 1);
+      }, 50);
+    }, delay);
 
-  const loadFrequencyData = async () => {
-    setLoading(true);
-    try {
-      const data = await api.getAllPastResults(gameType);
-      if (data.success) {
-        const frequency = calculateFrequency(data.results);
-        setFrequencyData(frequency);
+    const stopRolling = setTimeout(() => {
+      clearInterval(interval);
+      setIsRolling(false);
+      setDisplayNumber(number);
+    }, delay + 1000 + (Math.random() * 500));
+
+    return () => {
+      clearTimeout(startRolling);
+      clearTimeout(stopRolling);
+      clearInterval(interval);
+    };
+  }, [number, delay]);
+
+  return (
+    <div className={`rolling-number ${!isRolling ? 'stopped' : ''}`}>
+      {displayNumber}
+    </div>
+  );
+};
+
+// Lotto Picker Feature Component 
+const LottoPickerFeature = ({ gameType, onClose }) => {
+  const [selectedNumbers, setSelectedNumbers] = React.useState([]);
+  const [generatedPatterns, setGeneratedPatterns] = React.useState([]);
+  const [isGenerating, setIsGenerating] = React.useState(false);
+  const [patternCount, setPatternCount] = React.useState(5);
+
+  const gameConfig = {
+    '539': { maxNum: 39, minPick: 10, maxPick: 16, patternSize: 5 },
+    'mark6': { maxNum: 49, minPick: 14, maxPick: 20, patternSize: 7 },
+    'lotto649': { maxNum: 49, minPick: 14, maxPick: 20, patternSize: 7 }
+  };
+
+  const config = gameConfig[gameType] || gameConfig['539'];
+
+  const handleNumberClick = (number) => {
+    if (selectedNumbers.includes(number)) {
+      setSelectedNumbers(selectedNumbers.filter(n => n !== number));
+    } else {
+      if (selectedNumbers.length < config.maxPick) {
+        setSelectedNumbers([...selectedNumbers, number].sort((a, b) => a - b));
       }
-    } catch (error) {
-      console.error('Error loading frequency:', error);
-      // Use mock data if API fails
-      const mockFrequency = generateMockFrequency(maxNumber);
-      setFrequencyData(mockFrequency);
-    } finally {
-      setLoading(false);
     }
   };
 
-  const calculateFrequency = (results) => {
-    const freq = {};
-    for (let i = 1; i <= maxNumber; i++) {
-      freq[i] = { count: 0, lastSeen: null, gaps: [] };
+  const generatePatterns = () => {
+    if (selectedNumbers.length < config.minPick) {
+      return;
     }
 
-    results.forEach((draw, index) => {
-      draw.numbers.forEach(num => {
-        freq[num].count++;
-        if (freq[num].lastSeen !== null) {
-          freq[num].gaps.push(index - freq[num].lastSeen);
+    setIsGenerating(true);
+    setGeneratedPatterns([]);
+
+    setTimeout(() => {
+      const patterns = [];
+      
+      for (let i = 0; i < patternCount; i++) {
+        const pattern = [];
+        const availableNumbers = [...selectedNumbers];
+        
+        while (pattern.length < config.patternSize && availableNumbers.length > 0) {
+          const randomIndex = Math.floor(Math.random() * availableNumbers.length);
+          pattern.push(availableNumbers[randomIndex]);
+          availableNumbers.splice(randomIndex, 1);
         }
-        freq[num].lastSeen = index;
-      });
-    });
-
-    // Calculate average gap
-    Object.keys(freq).forEach(num => {
-      const gaps = freq[num].gaps;
-      freq[num].avgGap = gaps.length > 0 
-        ? gaps.reduce((a, b) => a + b, 0) / gaps.length 
-        : maxNumber;
-    });
-
-    return freq;
-  };
-
-  const generateMockFrequency = (max) => {
-    const freq = {};
-    for (let i = 1; i <= max; i++) {
-      freq[i] = {
-        count: Math.floor(Math.random() * 50) + 10,
-        lastSeen: Math.floor(Math.random() * 20),
-        avgGap: Math.random() * 10 + 3
-      };
-    }
-    return freq;
-  };
-
-  const generatePredictions = () => {
-    if (!frequencyData) return;
-    setLoading(true);
-
-    const newPredictions = [];
-    
-    for (let i = 0; i < numberCount; i++) {
-      let selected;
-      
-      switch (predictionCriteria) {
-        case 'hot':
-          selected = selectHotNumbers();
-          break;
-        case 'cold':
-          selected = selectColdNumbers();
-          break;
-        case 'overdue':
-          selected = selectOverdueNumbers();
-          break;
-        case 'balanced':
-        default:
-          selected = selectBalancedNumbers();
-          break;
+        
+        pattern.sort((a, b) => a - b);
+        patterns.push({
+          id: i + 1,
+          numbers: pattern
+        });
       }
-      
-      newPredictions.push({
-        id: Date.now() + i,
-        numbers: selected.sort((a, b) => a - b),
-        criteria: predictionCriteria
-      });
-    }
-    
-    setPredictions(newPredictions);
-    setLoading(false);
-  };
 
-  const selectHotNumbers = () => {
-    const sorted = Object.entries(frequencyData)
-      .sort((a, b) => b[1].count - a[1].count)
-      .slice(0, requiredNumbers * 2)
-      .map(([num]) => parseInt(num));
-    
-    return selectRandom(sorted, requiredNumbers);
-  };
-
-  const selectColdNumbers = () => {
-    const sorted = Object.entries(frequencyData)
-      .sort((a, b) => a[1].count - b[1].count)
-      .slice(0, requiredNumbers * 2)
-      .map(([num]) => parseInt(num));
-    
-    return selectRandom(sorted, requiredNumbers);
-  };
-
-  const selectOverdueNumbers = () => {
-    const sorted = Object.entries(frequencyData)
-      .sort((a, b) => b[1].lastSeen - a[1].lastSeen)
-      .slice(0, requiredNumbers * 2)
-      .map(([num]) => parseInt(num));
-    
-    return selectRandom(sorted, requiredNumbers);
-  };
-
-  const selectBalancedNumbers = () => {
-    const hot = Object.entries(frequencyData)
-      .sort((a, b) => b[1].count - a[1].count)
-      .slice(0, Math.floor(requiredNumbers / 2))
-      .map(([num]) => parseInt(num));
-    
-    const cold = Object.entries(frequencyData)
-      .sort((a, b) => a[1].count - b[1].count)
-      .slice(0, Math.floor(requiredNumbers / 2))
-      .map(([num]) => parseInt(num));
-    
-    const overdue = Object.entries(frequencyData)
-      .sort((a, b) => b[1].lastSeen - a[1].lastSeen)
-      .slice(0, requiredNumbers - hot.length - cold.length)
-      .map(([num]) => parseInt(num));
-    
-    const combined = [...new Set([...hot, ...cold, ...overdue])];
-    
-    while (combined.length < requiredNumbers) {
-      const random = Math.floor(Math.random() * maxNumber) + 1;
-      if (!combined.includes(random)) {
-        combined.push(random);
-      }
-    }
-    
-    return combined.slice(0, requiredNumbers);
-  };
-
-  const selectRandom = (pool, count) => {
-    const shuffled = [...pool].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, count);
-  };
-
-  const toggleNumber = (num) => {
-    const newSelected = new Set(selectedNumbers);
-    if (newSelected.has(num)) {
-      newSelected.delete(num);
-    } else if (newSelected.size < requiredNumbers) {
-      newSelected.add(num);
-    }
-    setSelectedNumbers(newSelected);
+      setGeneratedPatterns(patterns);
+      setIsGenerating(false);
+    }, 500);
   };
 
   const clearSelection = () => {
-    setSelectedNumbers(new Set());
+    setSelectedNumbers([]);
+    setGeneratedPatterns([]);
   };
 
-  const quickPick = () => {
-    const numbers = [];
-    while (numbers.length < requiredNumbers) {
-      const num = Math.floor(Math.random() * maxNumber) + 1;
-      if (!numbers.includes(num)) {
-        numbers.push(num);
-      }
-    }
-    setSelectedNumbers(new Set(numbers));
+  const getPatternColor = (index) => {
+    const colors = [
+      'from-blue-500 to-blue-700',
+      'from-green-500 to-green-700',
+      'from-purple-500 to-purple-700',
+      'from-red-500 to-red-700',
+      'from-yellow-500 to-yellow-700',
+      'from-pink-500 to-pink-700',
+      'from-indigo-500 to-indigo-700',
+      'from-cyan-500 to-cyan-700'
+    ];
+    return colors[index % colors.length];
   };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-4 rounded-t-xl">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-2">
-              <Pipette className="h-6 w-6" />
-              <h2 className="text-xl font-bold">Lotto Number Picker - {gameType.toUpperCase()}</h2>
-            </div>
-            <button onClick={onClose} className="text-white hover:bg-white hover:bg-opacity-20 p-2 rounded-lg">
-              <X size={24} />
-            </button>
+      <div className="bg-white rounded-xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between p-6 border-b bg-gradient-to-r from-green-50 to-green-100">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800 flex items-center space-x-2">
+              <Zap className="h-6 w-6 text-green-600" />
+              <span>Lotto Picker - {gameType.toUpperCase()}</span>
+            </h2>
+            <p className="text-sm text-gray-600 mt-1">
+              Pick {config.minPick}-{config.maxPick} numbers, then generate {config.patternSize}-number patterns
+              {(gameType === 'mark6' || gameType === 'lotto649') && <span className="block text-red-600 font-medium">{gameType === 'mark6' ? 'Mark 6' : 'Lotto 649'}: Last number in each pattern = Bonus number</span>}
+            </p>
           </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 hover:scale-110 transition-all duration-200 text-2xl">×</button>
         </div>
 
-        {/* Content */}
-        <div className="p-6">
-          {/* Manual Selection */}
-          <div className="mb-6">
-            <h3 className="text-lg font-semibold mb-3">Manual Selection ({selectedNumbers.size}/{requiredNumbers})</h3>
-            
-            {/* Number Grid */}
-            <div className="grid grid-cols-10 gap-2 mb-4">
-              {Array.from({length: maxNumber}, (_, i) => i + 1).map(num => (
-                <button
-                  key={num}
-                  onClick={() => toggleNumber(num)}
-                  className={`
-                    p-2 rounded-lg font-semibold transition-all
-                    ${selectedNumbers.has(num) 
-                      ? 'bg-green-500 text-white scale-110 shadow-lg' 
-                      : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}
-                  `}
-                  disabled={!selectedNumbers.has(num) && selectedNumbers.size >= requiredNumbers}
-                >
-                  {num}
-                </button>
-              ))}
-            </div>
-
-            {/* Quick Actions */}
-            <div className="flex space-x-2">
+        <div className="flex-1 overflow-y-auto p-6">
+          {/* Selection Info */}
+          <div className="mb-6 p-4 bg-gradient-to-r from-green-50 to-green-100 rounded-lg border-2 border-green-200">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <span className="text-sm font-semibold text-green-800">
+                  Selected: {selectedNumbers.length} / {config.maxPick}
+                </span>
+                <span className="text-xs text-green-600 block mt-1">
+                  {selectedNumbers.length < config.minPick 
+                    ? `Need ${config.minPick - selectedNumbers.length} more` 
+                    : '✓ Ready to generate patterns'}
+                </span>
+              </div>
               <button
                 onClick={clearSelection}
-                className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+                className="px-3 py-1 bg-red-500 text-white text-sm rounded-lg hover:bg-red-600 hover:scale-105 transition-all duration-200 flex items-center space-x-1"
               >
-                Clear
-              </button>
-              <button
-                onClick={quickPick}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-              >
-                Quick Pick
+                <X className="h-3 w-3" />
+                <span>Clear</span>
               </button>
             </div>
-
-            {/* Selected Numbers Display */}
-            {selectedNumbers.size > 0 && (
-              <div className="mt-4 p-4 bg-green-50 rounded-lg">
-                <p className="font-semibold text-green-800">Your Numbers:</p>
-                <div className="flex space-x-2 mt-2">
-                  {Array.from(selectedNumbers).sort((a, b) => a - b).map(num => (
-                    <span key={num} className="px-3 py-1 bg-green-500 text-white rounded-full font-bold">
-                      {num}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* AI Predictions */}
-          <div className="border-t pt-6">
-            <h3 className="text-lg font-semibold mb-3">AI-Generated Predictions</h3>
             
-            {/* Controls */}
-            <div className="flex flex-wrap gap-4 mb-4">
-              <div>
-                <label className="text-sm text-gray-600">Prediction Strategy</label>
-                <select 
-                  value={predictionCriteria}
-                  onChange={(e) => setPredictionCriteria(e.target.value)}
-                  className="ml-2 px-3 py-1 border rounded-lg"
-                >
-                  <option value="balanced">Balanced Mix</option>
-                  <option value="hot">Hot Numbers</option>
-                  <option value="cold">Cold Numbers</option>
-                  <option value="overdue">Overdue Numbers</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-sm text-gray-600">Number of Sets</label>
-                <input 
-                  type="number"
-                  min="1"
-                  max="20"
-                  value={numberCount}
-                  onChange={(e) => setNumberCount(parseInt(e.target.value))}
-                  className="ml-2 px-3 py-1 border rounded-lg w-20"
-                />
-              </div>
-
-              <button
-                onClick={generatePredictions}
-                disabled={loading}
-                className="px-6 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:shadow-lg disabled:opacity-50"
-              >
-                {loading ? 'Generating...' : 'Generate Predictions'}
-              </button>
-            </div>
-
-            {/* Predictions Display */}
-            {predictions.length > 0 && (
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {predictions.map((pred, index) => (
-                  <div key={pred.id} className="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                      <span className="text-gray-600 font-semibold">#{index + 1}</span>
-                      <div className="flex space-x-2">
-                        {pred.numbers.map(num => (
-                          <span key={num} className="px-2 py-1 bg-blue-500 text-white rounded-full text-sm font-bold">
-                            {num}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <span className="text-xs text-gray-500 capitalize">{pred.criteria}</span>
+            {selectedNumbers.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {selectedNumbers.map((num, index) => (
+                  <div
+                    key={num}
+                    onClick={() => handleNumberClick(num)}
+                    className="w-10 h-10 rounded-full bg-gradient-to-br from-green-500 to-green-700 text-white flex items-center justify-center text-sm font-bold shadow-md cursor-pointer hover:scale-110 transition-all duration-200"
+                  >
+                    {num}
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Frequency Stats */}
-          {frequencyData && (
-            <div className="border-t pt-6 mt-6">
-              <h3 className="text-lg font-semibold mb-3">Number Statistics</h3>
-              <div className="grid grid-cols-3 gap-4 text-sm">
-                <div>
-                  <p className="font-semibold text-red-600">🔥 Hot Numbers</p>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {Object.entries(frequencyData)
-                      .sort((a, b) => b[1].count - a[1].count)
-                      .slice(0, 5)
-                      .map(([num]) => (
-                        <span key={num} className="px-2 py-1 bg-red-100 text-red-600 rounded">
-                          {num}
-                        </span>
-                      ))}
+          {/* Number Grid */}
+          <div className="mb-6">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Pick Your Numbers (1-{config.maxNum})</h3>
+            <div className="grid grid-cols-8 md:grid-cols-10 gap-2">
+              {Array.from({ length: config.maxNum }, (_, i) => i + 1).map(number => (
+                <button
+                  key={number}
+                  onClick={() => handleNumberClick(number)}
+                  disabled={!selectedNumbers.includes(number) && selectedNumbers.length >= config.maxPick}
+                  className={`w-10 h-10 rounded-lg font-semibold text-sm transition-all duration-200 ${
+                    selectedNumbers.includes(number)
+                      ? 'bg-gradient-to-br from-green-500 to-green-700 text-white shadow-lg scale-110'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200 hover:scale-105'
+                  } ${!selectedNumbers.includes(number) && selectedNumbers.length >= config.maxPick ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`}
+                >
+                  {number}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Pattern Count Slider */}
+          {selectedNumbers.length >= config.minPick && (
+            <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+              <label className="block text-sm font-semibold text-blue-800 mb-3">
+                Number of Patterns to Generate: {patternCount}
+              </label>
+              <input
+                type="range"
+                min={3}
+                max={20}
+                value={patternCount}
+                onChange={(e) => setPatternCount(parseInt(e.target.value))}
+                className="w-full h-3 bg-blue-200 rounded-full appearance-none cursor-pointer"
+              />
+              <div className="flex justify-between mt-2 text-xs text-gray-600">
+                <span>3 patterns</span>
+                <span>10 patterns</span>
+                <span>20 patterns</span>
+              </div>
+            </div>
+          )}
+
+          {/* Generate Button */}
+          <button
+            onClick={generatePatterns}
+            disabled={selectedNumbers.length < config.minPick || isGenerating}
+            className={`w-full mb-6 py-3 px-4 rounded-lg font-semibold flex items-center justify-center space-x-2 transition-all duration-200 ${
+              selectedNumbers.length >= config.minPick && !isGenerating
+                ? 'bg-gradient-to-r from-green-600 to-green-700 text-white hover:shadow-lg hover:scale-105'
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span>Generating Patterns...</span>
+              </>
+            ) : (
+              <>
+                <Zap className="h-5 w-5" />
+                <span>Generate {patternCount} Patterns</span>
+              </>
+            )}
+          </button>
+
+          {/* Generated Patterns */}
+          {generatedPatterns.length > 0 && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-gray-800 flex items-center space-x-2">
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+                <span>Generated Patterns ({generatedPatterns.length})</span>
+              </h3>
+              
+              <div className="grid md:grid-cols-2 gap-4">
+                {generatedPatterns.map((pattern, index) => (
+                  <div key={pattern.id} className="p-4 bg-gradient-to-r from-gray-50 to-white rounded-lg border-2 border-gray-200 hover:border-green-300 transition-all duration-200">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className={`text-sm font-semibold bg-gradient-to-r ${getPatternColor(index)} bg-clip-text text-transparent`}>
+                        Pattern #{pattern.id}
+                      </span>
+                    </div>
+                    
+                    <div className="flex flex-wrap gap-2 justify-center">
+                      {pattern.numbers.map((num, numIndex) => {
+                        const isBonus = (gameType === 'mark6' || gameType === 'lotto649') && numIndex === pattern.numbers.length - 1;
+                        return (
+                          <div key={numIndex} className="flex flex-col items-center">
+                            <div
+                              className={`w-12 h-12 rounded-full ${
+                                isBonus 
+                                  ? 'bg-gradient-to-br from-red-500 to-red-700 animate-pulse ring-2 ring-red-300'
+                                  : `bg-gradient-to-br ${getPatternColor(index)}`
+                              } text-white flex items-center justify-center text-base font-bold shadow-lg`}
+                            >
+                              {num}
+                            </div>
+                            {isBonus && (
+                              <span className="text-xs font-bold text-red-600 mt-1">BONUS</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <p className="font-semibold text-blue-600">❄️ Cold Numbers</p>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {Object.entries(frequencyData)
-                      .sort((a, b) => a[1].count - b[1].count)
-                      .slice(0, 5)
-                      .map(([num]) => (
-                        <span key={num} className="px-2 py-1 bg-blue-100 text-blue-600 rounded">
-                          {num}
-                        </span>
-                      ))}
-                  </div>
-                </div>
-                <div>
-                  <p className="font-semibold text-purple-600">⏰ Overdue</p>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {Object.entries(frequencyData)
-                      .sort((a, b) => b[1].lastSeen - a[1].lastSeen)
-                      .slice(0, 5)
-                      .map(([num]) => (
-                        <span key={num} className="px-2 py-1 bg-purple-100 text-purple-600 rounded">
-                          {num}
-                        </span>
-                      ))}
-                  </div>
-                </div>
+                ))}
+              </div>
+
+              <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200">
+                <p className="text-xs text-green-800">
+                  <strong>ℹ️ Tip:</strong> All patterns are randomly selected from your {selectedNumbers.length} chosen numbers. 
+                  Each pattern contains {config.patternSize} unique numbers.
+                  {(gameType === 'mark6' || gameType === 'lotto649') && <span className="block mt-1"><strong>{gameType === 'mark6' ? 'Mark 6' : 'Lotto 649'} Note:</strong> The last number in each pattern (marked as BONUS in red) represents the bonus number.</span>}
+                </p>
               </div>
             </div>
           )}
@@ -589,62 +494,32 @@ const LottoPickerFeature = ({ gameType, onClose }) => {
 
 // Rolling Prediction Feature Component
 const RollingPredictionFeature = ({ gameType, onClose }) => {
-  const [iterations, setIterations] = useState(10);
-  const [period, setPeriod] = useState('1month');
-  const [results, setResults] = useState([]);
-  const [isRunning, setIsRunning] = useState(false);
-  const [currentIteration, setCurrentIteration] = useState(0);
-  const [mostFrequent, setMostFrequent] = useState([]);
+  const [predictions, setPredictions] = useState([]);
+  const [isRolling, setIsRolling] = useState(false);
+  const [rollCount, setRollCount] = useState(50);
 
-  const runRollingPrediction = async () => {
-    setIsRunning(true);
-    setResults([]);
-    setCurrentIteration(0);
+  const generateRollingPredictions = () => {
+    setIsRolling(true);
+    const maxNumber = gameType === '539' ? 39 : 49;
+    const count = gameType === '539' ? 5 : 6;
     
-    const allNumbers = {};
-    const newResults = [];
-
-    for (let i = 0; i < iterations; i++) {
-      setCurrentIteration(i + 1);
-      
-      try {
-        const response = await api.predict(gameType, period);
-        
-        if (response.success) {
-          const numbers = response.prediction.numbers;
-          newResults.push({
-            iteration: i + 1,
-            numbers,
-            bonus: response.prediction.bonus
-          });
-          
-          // Track frequency
-          numbers.forEach(num => {
-            allNumbers[num] = (allNumbers[num] || 0) + 1;
-          });
+    // Simulate rolling effect
+    setTimeout(() => {
+      const numbers = [];
+      while (numbers.length < count) {
+        const num = Math.floor(Math.random() * maxNumber) + 1;
+        if (!numbers.includes(num)) {
+          numbers.push(num);
         }
-      } catch (error) {
-        console.error(`Iteration ${i + 1} failed:`, error);
       }
-      
-      // Small delay to show progress
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-
-    // Calculate most frequent numbers
-    const sorted = Object.entries(allNumbers)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, gameType === '539' ? 8 : 6);
-    
-    setMostFrequent(sorted);
-    setResults(newResults);
-    setIsRunning(false);
+      setPredictions(numbers.sort((a, b) => a - b));
+      setIsRolling(false);
+    }, 2000);
   };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-        {/* Header */}
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl">
         <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-4 rounded-t-xl">
           <div className="flex justify-between items-center">
             <div className="flex items-center space-x-2">
@@ -657,108 +532,50 @@ const RollingPredictionFeature = ({ gameType, onClose }) => {
           </div>
         </div>
 
-        {/* Content */}
         <div className="p-6">
-          {/* Controls */}
-          <div className="flex flex-wrap gap-4 mb-6">
-            <div>
-              <label className="text-sm text-gray-600">Iterations</label>
-              <input 
-                type="number"
-                min="5"
-                max="100"
-                value={iterations}
-                onChange={(e) => setIterations(parseInt(e.target.value))}
-                disabled={isRunning}
-                className="ml-2 px-3 py-1 border rounded-lg w-20"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm text-gray-600">Analysis Period</label>
-              <select 
-                value={period}
-                onChange={(e) => setPeriod(e.target.value)}
-                disabled={isRunning}
-                className="ml-2 px-3 py-1 border rounded-lg"
-              >
-                <option value="1week">1 Week</option>
-                <option value="1month">1 Month</option>
-                <option value="3months">3 Months</option>
-                <option value="6months">6 Months</option>
-              </select>
-            </div>
-
-            <button
-              onClick={runRollingPrediction}
-              disabled={isRunning}
-              className="px-6 py-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg hover:shadow-lg disabled:opacity-50"
-            >
-              {isRunning ? `Running ${currentIteration}/${iterations}...` : 'Start Rolling Prediction'}
-            </button>
+          <div className="text-center mb-6">
+            <h3 className="text-lg font-semibold mb-2">Generate Rolling Predictions</h3>
+            <p className="text-gray-600 text-sm">Click to roll the numbers!</p>
           </div>
 
-          {/* Progress Bar */}
-          {isRunning && (
-            <div className="mb-6">
-              <div className="bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-purple-500 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${(currentIteration / iterations) * 100}%` }}
-                />
-              </div>
-              <p className="text-sm text-gray-600 mt-1">Processing iteration {currentIteration} of {iterations}</p>
-            </div>
-          )}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Roll Count: {rollCount}
+            </label>
+            <input
+              type="range"
+              min={10}
+              max={100}
+              value={rollCount}
+              onChange={(e) => setRollCount(parseInt(e.target.value))}
+              className="w-full"
+            />
+          </div>
 
-          {/* Most Frequent Numbers */}
-          {mostFrequent.length > 0 && (
-            <div className="mb-6 p-4 bg-purple-50 rounded-lg">
-              <h3 className="font-semibold text-purple-800 mb-3">Most Frequently Predicted Numbers</h3>
-              <div className="flex flex-wrap gap-3">
-                {mostFrequent.map(([num, count]) => (
-                  <div key={num} className="text-center">
-                    <div className="px-4 py-2 bg-purple-500 text-white rounded-full font-bold text-lg">
-                      {num}
-                    </div>
-                    <p className="text-xs text-purple-600 mt-1">{count} times</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <button
+            onClick={generateRollingPredictions}
+            disabled={isRolling}
+            className="w-full py-3 px-4 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg font-semibold hover:shadow-lg transition-all duration-200 disabled:opacity-50 flex items-center justify-center space-x-2"
+          >
+            {isRolling ? (
+              <>
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span>Rolling...</span>
+              </>
+            ) : (
+              <>
+                <RotateCw className="h-5 w-5" />
+                <span>Roll Predictions</span>
+              </>
+            )}
+          </button>
 
-          {/* Results Grid */}
-          {results.length > 0 && (
-            <div>
-              <h3 className="font-semibold mb-3">All Predictions ({results.length})</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
-                {results.map(result => (
-                  <div key={result.iteration} className="p-3 bg-gray-50 rounded-lg">
-                    <p className="text-xs text-gray-600 mb-2">Iteration #{result.iteration}</p>
-                    <div className="flex flex-wrap gap-1">
-                      {result.numbers.map(num => (
-                        <span 
-                          key={num} 
-                          className={`px-2 py-1 rounded-full text-xs font-bold ${
-                            mostFrequent.some(([n]) => n === num.toString())
-                              ? 'bg-purple-500 text-white'
-                              : 'bg-gray-200 text-gray-700'
-                          }`}
-                        >
-                          {num}
-                        </span>
-                      ))}
-                    </div>
-                    {result.bonus && (
-                      <div className="mt-2">
-                        <span className="text-xs text-gray-600">Bonus: </span>
-                        <span className="px-2 py-1 bg-yellow-400 text-white rounded-full text-xs font-bold">
-                          {result.bonus}
-                        </span>
-                      </div>
-                    )}
-                  </div>
+          {predictions.length > 0 && !isRolling && (
+            <div className="mt-6">
+              <h4 className="text-center font-semibold text-gray-700 mb-4">Your Numbers</h4>
+              <div className="flex flex-wrap justify-center gap-3">
+                {predictions.map((num, index) => (
+                  <RollingNumber key={index} number={num} delay={index * 100} />
                 ))}
               </div>
             </div>
@@ -778,23 +595,19 @@ const AllPastResultsModal = ({ gameType, onClose }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    loadResults();
+    loadPastResults();
   }, [gameType]);
 
-  const loadResults = async () => {
+  const loadPastResults = async () => {
+    setLoading(true);
+    setError(null);
+    
     try {
-      setLoading(true);
-      setError(null);
-      const response = await api.getAllPastResults(gameType);
-      
-      if (response.success) {
-        // Sort by date, most recent first
-        const sorted = response.results.sort((a, b) => 
-          new Date(b.drawDate) - new Date(a.drawDate)
-        );
-        setResults(sorted);
+      const data = await api.getAllPastResults(gameType);
+      if (data.success) {
+        setResults(data.results || []);
       } else {
-        throw new Error(response.error || 'Failed to load results');
+        throw new Error(data.error || 'Failed to load results');
       }
     } catch (err) {
       console.error('Error loading past results:', err);
@@ -898,89 +711,76 @@ const AllPastResultsModal = ({ gameType, onClose }) => {
               </div>
             </div>
           ) : error ? (
-            <div className="text-center py-8">
-              <AlertCircle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
-              <p className="text-gray-600">Using sample data. {error}</p>
+            <div className="text-center text-red-600 p-4">
+              <AlertCircle className="h-8 w-8 mx-auto mb-2" />
+              <p>{error}</p>
             </div>
           ) : (
             <>
-              {/* Stats Summary */}
-              {stats && (
-                <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="font-semibold text-red-600 mb-2">🔥 Hot Numbers</p>
-                      <div className="flex space-x-2">
-                        {stats.hot.map(([num, count]) => (
-                          <div key={num} className="text-center">
-                            <div className="px-3 py-1 bg-red-500 text-white rounded-full font-bold">
-                              {num}
-                            </div>
-                            <p className="text-xs text-gray-600 mt-1">{count}x</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <p className="font-semibold text-blue-600 mb-2">❄️ Cold Numbers</p>
-                      <div className="flex space-x-2">
-                        {stats.cold.map(([num, count]) => (
-                          <div key={num} className="text-center">
-                            <div className="px-3 py-1 bg-blue-500 text-white rounded-full font-bold">
-                              {num}
-                            </div>
-                            <p className="text-xs text-gray-600 mt-1">{count}x</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Search */}
-              <div className="mb-4">
+              {/* Search Bar */}
+              <div className="mb-6">
                 <input
                   type="text"
                   placeholder="Search by date or number..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full px-4 py-2 border rounded-lg"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
 
+              {/* Frequency Analysis */}
+              {stats && (
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="bg-red-50 p-4 rounded-lg">
+                    <h4 className="font-semibold text-red-800 mb-2">Hot Numbers 🔥</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {stats.hot.map(([num, freq]) => (
+                        <div key={num} className="bg-red-500 text-white px-3 py-1 rounded-full text-sm">
+                          {num} ({freq}x)
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <h4 className="font-semibold text-blue-800 mb-2">Cold Numbers ❄️</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {stats.cold.map(([num, freq]) => (
+                        <div key={num} className="bg-blue-500 text-white px-3 py-1 rounded-full text-sm">
+                          {num} ({freq}x)
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Results Table */}
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full border-collapse">
                   <thead>
-                    <tr className="border-b bg-gray-50">
-                      <th className="px-4 py-2 text-left">Date</th>
-                      <th className="px-4 py-2 text-left">Numbers</th>
-                      {gameType !== '539' && <th className="px-4 py-2 text-left">Bonus</th>}
+                    <tr className="bg-gray-100 border-b">
+                      <th className="text-left p-3">Date</th>
+                      <th className="text-left p-3">Numbers</th>
+                      {gameType !== '539' && <th className="text-left p-3">Bonus</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {paginatedResults.map((result, index) => (
                       <tr key={result.id || index} className="border-b hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                          {new Date(result.drawDate).toLocaleDateString()}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex space-x-2">
-                            {result.numbers.map(num => (
-                              <span 
-                                key={num}
-                                className="px-2 py-1 bg-green-500 text-white rounded-full text-sm font-bold"
-                              >
+                        <td className="p-3 font-medium">{result.drawDate}</td>
+                        <td className="p-3">
+                          <div className="flex flex-wrap gap-2">
+                            {result.numbers.map((num, idx) => (
+                              <span key={idx} className="bg-gradient-to-r from-green-500 to-green-600 text-white px-2 py-1 rounded-full text-sm">
                                 {num}
                               </span>
                             ))}
                           </div>
                         </td>
                         {gameType !== '539' && (
-                          <td className="px-4 py-3">
+                          <td className="p-3">
                             {result.bonus && (
-                              <span className="px-2 py-1 bg-yellow-400 text-white rounded-full text-sm font-bold">
+                              <span className="bg-gradient-to-r from-purple-500 to-purple-600 text-white px-2 py-1 rounded-full text-sm">
                                 {result.bonus}
                               </span>
                             )}
@@ -994,11 +794,11 @@ const AllPastResultsModal = ({ gameType, onClose }) => {
 
               {/* Pagination */}
               {totalPages > 1 && (
-                <div className="mt-6 flex justify-center space-x-2">
+                <div className="flex justify-center mt-6 space-x-2">
                   <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    onClick={() => setPage(Math.max(1, page - 1))}
                     disabled={page === 1}
-                    className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50"
+                    className="px-3 py-1 bg-gray-200 rounded-lg hover:bg-gray-300 disabled:opacity-50"
                   >
                     Previous
                   </button>
@@ -1006,9 +806,9 @@ const AllPastResultsModal = ({ gameType, onClose }) => {
                     Page {page} of {totalPages}
                   </span>
                   <button
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    onClick={() => setPage(Math.min(totalPages, page + 1))}
                     disabled={page === totalPages}
-                    className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50"
+                    className="px-3 py-1 bg-gray-200 rounded-lg hover:bg-gray-300 disabled:opacity-50"
                   >
                     Next
                   </button>
@@ -1022,466 +822,36 @@ const AllPastResultsModal = ({ gameType, onClose }) => {
   );
 };
 
-// Admin Panel Component
-const AdminPanel = ({ user, onClose }) => {
-  const [activeTab, setActiveTab] = useState('539');
-  const [historicalResults, setHistoricalResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
-  const [schedulerStatus, setSchedulerStatus] = useState({});
+// Number Ball Component
+const NumberBall = ({ number, isBonus = false, delay = 0, size = 'md' }) => {
+  const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    loadHistoricalResults(activeTab);
-    loadSchedulerStatus(activeTab);
-  }, [activeTab]);
+    const timer = setTimeout(() => setIsVisible(true), delay);
+    return () => clearTimeout(timer);
+  }, [delay]);
 
-  const loadHistoricalResults = async (gameType) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await api.getHistoricalResults(gameType);
-      setHistoricalResults(data.data || []);
-    } catch (err) {
-      setError(err.message);
-      console.error('Failed to load results:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadSchedulerStatus = async (gameType) => {
-    try {
-      const status = await api.getSchedulerStatus(gameType);
-      setSchedulerStatus(status);
-    } catch (err) {
-      console.error('Failed to load scheduler status:', err);
-    }
-  };
-
-  const handleSyncExcel = async () => {
-    setLoading(true);
-    try {
-      const result = await api.syncBackendExcel(activeTab);
-      setSuccess(result.message || 'Sync completed');
-      loadHistoricalResults(activeTab);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAutoUpdate = async () => {
-    setLoading(true);
-    try {
-      const result = await api.triggerManualScrape(activeTab);
-      setSuccess(result.message || 'Update completed');
-      loadHistoricalResults(activeTab);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAddResult = async (result) => {
-    try {
-      await api.addHistoricalResult(activeTab, result);
-      setSuccess('Result added successfully');
-      setShowAddModal(false);
-      loadHistoricalResults(activeTab);
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
-  const handleDeleteResult = async (id) => {
-    if (!window.confirm('Delete this result?')) return;
-    try {
-      await api.deleteHistoricalResult(activeTab, id);
-      setSuccess('Result deleted');
-      loadHistoricalResults(activeTab);
-    } catch (err) {
-      setError(err.message);
-    }
+  const sizeClasses = {
+    sm: 'w-10 h-10 text-sm',
+    md: 'w-12 h-12 text-base',
+    lg: 'w-14 h-14 text-lg',
+    xl: 'w-16 h-16 text-xl'
   };
 
   return (
-    <div className="fixed inset-0 bg-gray-900 bg-opacity-75 z-50 overflow-y-auto">
-      <div className="min-h-screen px-4 py-8">
-        <div className="max-w-7xl mx-auto bg-white rounded-xl shadow-2xl">
-          {/* Header */}
-          <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-6 rounded-t-xl">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center space-x-3">
-                <Shield className="h-8 w-8" />
-                <h1 className="text-2xl font-bold">Admin Panel - Historical Data</h1>
-              </div>
-              <button onClick={onClose} className="text-white hover:bg-white hover:bg-opacity-20 p-2 rounded-lg">
-                <X size={24} />
-              </button>
-            </div>
-          </div>
-
-          {/* Tabs */}
-          <div className="flex border-b">
-            {['539', 'mark6', 'lotto649'].map(game => (
-              <button
-                key={game}
-                onClick={() => setActiveTab(game)}
-                className={`px-6 py-3 font-semibold uppercase transition-colors ${
-                  activeTab === game
-                    ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600'
-                    : 'text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                {game}
-              </button>
-            ))}
-          </div>
-
-          {/* Content */}
-          <div className="p-6">
-            {/* Action Buttons */}
-            <div className="mb-6 flex flex-wrap gap-3">
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center space-x-2"
-              >
-                <span>Add New Result</span>
-              </button>
-              
-              <button
-                onClick={handleSyncExcel}
-                disabled={loading}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 flex items-center space-x-2"
-              >
-                <span>Sync Excel</span>
-              </button>
-
-              <button
-                onClick={handleAutoUpdate}
-                disabled={loading}
-                className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50 flex items-center space-x-2"
-              >
-                <span>Auto Update Results</span>
-              </button>
-            </div>
-
-            {/* Messages */}
-            {error && (
-              <div className="mb-4 p-4 bg-red-50 text-red-700 rounded-lg">
-                {error}
-              </div>
-            )}
-            {success && (
-              <div className="mb-4 p-4 bg-green-50 text-green-700 rounded-lg">
-                {success}
-              </div>
-            )}
-
-            {/* Historical Results */}
-            <div className="bg-white border rounded-lg">
-              <h2 className="text-lg font-semibold p-4 border-b">Historical Results</h2>
-              
-              {loading ? (
-                <div className="p-8 text-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-                </div>
-              ) : historicalResults.length === 0 ? (
-                <div className="p-8 text-center text-gray-500">
-                  <Database className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                  <p>No historical results</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b bg-gray-50">
-                        <th className="px-4 py-2 text-left">Date</th>
-                        <th className="px-4 py-2 text-left">Numbers</th>
-                        {activeTab !== '539' && <th className="px-4 py-2 text-left">Bonus</th>}
-                        <th className="px-4 py-2 text-left">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {historicalResults.map((result) => (
-                        <tr key={result._id} className="border-b hover:bg-gray-50">
-                          <td className="px-4 py-3">
-                            {new Date(result.drawDate).toLocaleDateString()}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex space-x-1">
-                              {result.numbers.map((num, idx) => (
-                                <span key={idx} className="px-2 py-1 bg-blue-500 text-white rounded-full text-sm">
-                                  {num}
-                                </span>
-                              ))}
-                            </div>
-                          </td>
-                          {activeTab !== '539' && (
-                            <td className="px-4 py-3">
-                              {result.bonus && (
-                                <span className="px-2 py-1 bg-yellow-500 text-white rounded-full text-sm">
-                                  {result.bonus}
-                                </span>
-                              )}
-                            </td>
-                          )}
-                          <td className="px-4 py-3">
-                            <button
-                              onClick={() => handleDeleteResult(result._id)}
-                              className="text-red-600 hover:text-red-800"
-                            >
-                              Delete
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Add Result Modal */}
-      {showAddModal && (
-        <AddResultModal
-          gameType={activeTab}
-          onAdd={handleAddResult}
-          onClose={() => setShowAddModal(false)}
-        />
-      )}
-    </div>
-  );
-};
-
-// Add Result Modal Component
-const AddResultModal = ({ gameType, onAdd, onClose }) => {
-  const [date, setDate] = useState('');
-  const [numbers, setNumbers] = useState('');
-  const [bonus, setBonus] = useState('');
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    
-    const numbersArray = numbers.split(',').map(n => parseInt(n.trim()));
-    
-    onAdd({
-      drawDate: date,
-      numbers: numbersArray,
-      bonus: bonus ? parseInt(bonus) : null
-    });
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
-      <div className="bg-white rounded-lg p-6 max-w-md w-full">
-        <h3 className="text-lg font-semibold mb-4">Add New Result - {gameType.toUpperCase()}</h3>
-        
-        <form onSubmit={handleSubmit}>
-          <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">Draw Date</label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              required
-              className="w-full px-3 py-2 border rounded-lg"
-            />
-          </div>
-          
-          <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">
-              Numbers (comma separated)
-            </label>
-            <input
-              type="text"
-              value={numbers}
-              onChange={(e) => setNumbers(e.target.value)}
-              placeholder="1, 2, 3, 4, 5"
-              required
-              className="w-full px-3 py-2 border rounded-lg"
-            />
-          </div>
-          
-          {gameType !== '539' && (
-            <div className="mb-4">
-              <label className="block text-sm font-medium mb-2">Bonus Number</label>
-              <input
-                type="number"
-                value={bonus}
-                onChange={(e) => setBonus(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-          )}
-          
-          <div className="flex space-x-3">
-            <button
-              type="submit"
-              className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-            >
-              Add Result
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-// Auth Provider Context (Simple version for admin only)
-const AuthContext = React.createContext(null);
-
-const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const checkAuth = async () => {
-    try {
-      const response = await api.verifyAuth();
-      if (response.authenticated) {
-        setUser(response.user);
-      }
-    } catch (error) {
-      console.error('Auth check failed:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const login = async (credentials) => {
-    const response = await api.login(credentials);
-    if (response.success) {
-      setUser(response.user);
-    }
-    return response;
-  };
-
-  const logout = async () => {
-    await api.logout();
-    setUser(null);
-  };
-
-  return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
-      {children}
-    </AuthContext.Provider>
-  );
-};
-
-const useAuth = () => {
-  const context = React.useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within AuthProvider');
-  }
-  return context;
-};
-
-// Login Modal for Admin Access
-const LoginModal = ({ onLogin, onClose }) => {
-  const [credentials, setCredentials] = useState({ username: '', password: '' });
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-
-    try {
-      const response = await onLogin(credentials);
-      if (!response.success) {
-        setError(response.error || 'Login failed');
-      } else {
-        onClose();
-      }
-    } catch (err) {
-      setError(err.message || 'Login failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full">
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4">
-            <Lock className="h-8 w-8 text-blue-600" />
-          </div>
-          <h2 className="text-2xl font-bold text-gray-800">Admin Login</h2>
-          <p className="text-gray-600 mt-2">Enter admin credentials to access panel</p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Username
-            </label>
-            <input
-              type="text"
-              value={credentials.username}
-              onChange={(e) => setCredentials(prev => ({ ...prev, username: e.target.value }))}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Password
-            </label>
-            <input
-              type="password"
-              value={credentials.password}
-              onChange={(e) => setCredentials(prev => ({ ...prev, password: e.target.value }))}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            />
-          </div>
-
-          {error && (
-            <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
-
-          <div className="flex space-x-3">
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 py-3 px-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-semibold hover:shadow-lg transition-all duration-200 disabled:opacity-50"
-            >
-              {loading ? 'Logging in...' : 'Login'}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-3 px-4 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      </div>
+    <div 
+      className={`
+        ${sizeClasses[size]}
+        rounded-full flex items-center justify-center font-bold
+        transform transition-all duration-500 shadow-lg
+        ${isVisible ? 'scale-100 opacity-100' : 'scale-0 opacity-0'}
+        ${isBonus 
+          ? 'bg-gradient-to-br from-purple-500 to-purple-700 text-white ring-2 ring-purple-300' 
+          : 'bg-gradient-to-br from-blue-500 to-blue-700 text-white'
+        }
+      `}
+    >
+      {number}
     </div>
   );
 };
@@ -1495,157 +865,200 @@ const LoadingSpinner = ({ size = 'md' }) => {
   };
 
   return (
-    <div className={`animate-spin rounded-full border-b-2 border-blue-500 ${sizeClasses[size]}`}></div>
-  );
-};
-
-// Number Ball Component for visual display
-const NumberBall = ({ number, isBonus = false, delay = 0, size = 'md' }) => {
-  const sizeClasses = {
-    sm: 'w-8 h-8 text-sm',
-    md: 'w-10 h-10 text-base',
-    lg: 'w-12 h-12 text-lg',
-    xl: 'w-14 h-14 text-xl'
-  };
-
-  return (
-    <div
-      className={`
-        ${sizeClasses[size]} 
-        ${isBonus ? 'bg-yellow-400' : 'bg-gradient-to-br from-blue-500 to-blue-600'}
-        text-white font-bold rounded-full flex items-center justify-center shadow-lg
-        animate-bounce
-      `}
-      style={{ animationDelay: `${delay}ms` }}
-    >
-      {number}
-    </div>
-  );
-};
-
-// Custom Slider Component
-const CustomSlider = ({ value, max, onChange, disabled, label, color, icon: Icon }) => {
-  const percentage = (value / max) * 100;
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          {Icon && <Icon className="h-4 w-4 text-gray-600" />}
-          <span className="text-sm font-medium text-gray-700">{label}</span>
-        </div>
-      </div>
-      <div className="relative">
-        <input
-          type="range"
-          min="0"
-          max={max}
-          value={value}
-          onChange={onChange}
-          disabled={disabled}
-          className={`
-            w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer
-            ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
-          `}
-          style={{
-            background: `linear-gradient(to right, 
-              ${color === 'blue' ? '#3B82F6' : '#10B981'} 0%, 
-              ${color === 'blue' ? '#3B82F6' : '#10B981'} ${percentage}%, 
-              #E5E7EB ${percentage}%, 
-              #E5E7EB 100%)`
-          }}
-        />
-      </div>
+    <div className={`${sizeClasses[size]} animate-spin`}>
+      <svg className="w-full h-full" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+      </svg>
     </div>
   );
 };
 
 // Automation Results Component
 const AutomationResults = ({ results, onClear }) => {
-  if (!results || results.length === 0) return null;
-
-  // Calculate statistics
-  const allNumbers = {};
-  results.forEach(result => {
-    result.numbers.forEach(num => {
-      allNumbers[num] = (allNumbers[num] || 0) + 1;
+  const frequencyAnalysis = () => {
+    const freq = {};
+    results.forEach(result => {
+      result.numbers.forEach(num => {
+        freq[num] = (freq[num] || 0) + 1;
+      });
     });
-  });
+    return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  };
 
-  const sortedNumbers = Object.entries(allNumbers)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10);
+  const topNumbers = frequencyAnalysis();
 
   return (
-    <div className="mt-4 p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg">
+    <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg">
       <div className="flex justify-between items-center mb-3">
-        <h4 className="font-semibold text-gray-700">Automation Results</h4>
-        <button
+        <h4 className="font-semibold text-blue-900">Automation Results ({results.length} iterations)</h4>
+        <button 
           onClick={onClear}
-          className="text-sm text-gray-500 hover:text-gray-700"
+          className="text-red-600 hover:text-red-800 text-sm"
         >
           Clear
         </button>
       </div>
       
-      <div className="space-y-3">
-        <div>
-          <p className="text-xs text-gray-600 mb-2">Top Predicted Numbers:</p>
-          <div className="flex flex-wrap gap-2">
-            {sortedNumbers.map(([num, count]) => (
-              <div key={num} className="text-center">
-                <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-purple-600 text-white rounded-full flex items-center justify-center font-bold">
-                  {num}
-                </div>
-                <p className="text-xs text-gray-600 mt-1">{count}x</p>
-              </div>
-            ))}
-          </div>
+      <div className="mb-3">
+        <p className="text-sm font-medium text-blue-800 mb-2">Top 10 Most Frequent Numbers:</p>
+        <div className="flex flex-wrap gap-2">
+          {topNumbers.map(([num, freq], index) => (
+            <div 
+              key={num}
+              className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                index < 3 ? 'bg-gradient-to-r from-yellow-400 to-yellow-500 text-white' :
+                index < 6 ? 'bg-gradient-to-r from-gray-400 to-gray-500 text-white' :
+                'bg-gradient-to-r from-orange-400 to-orange-500 text-white'
+              }`}
+            >
+              #{num} ({freq}x)
+            </div>
+          ))}
         </div>
-        
-        <div className="pt-3 border-t border-gray-200">
-          <p className="text-xs text-gray-600">
-            Generated {results.length} predictions
-          </p>
+      </div>
+      
+      <div className="max-h-40 overflow-y-auto">
+        <p className="text-sm font-medium text-blue-800 mb-2">Recent Predictions:</p>
+        {results.slice(-3).reverse().map((result, index) => (
+          <div key={index} className="mb-2 p-2 bg-white bg-opacity-70 rounded">
+            <span className="text-xs text-gray-600">Iteration {result.iteration}:</span>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {result.numbers.map((num, idx) => (
+                <span key={idx} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                  {num}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// Custom Slider Component
+const CustomSlider = ({ value, max, onChange, disabled, label, color = 'blue', icon: Icon }) => {
+  const colors = {
+    blue: 'from-blue-400 to-blue-600',
+    green: 'from-green-400 to-green-600',
+    purple: 'from-purple-400 to-purple-600'
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-sm font-medium text-gray-700 flex items-center space-x-2">
+          {Icon && <Icon size={16} />}
+          <span>{label}</span>
+        </label>
+      </div>
+      <div className="relative">
+        <input
+          type="range"
+          min={0}
+          max={max}
+          value={value}
+          onChange={onChange}
+          disabled={disabled}
+          className={`w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider ${disabled ? 'opacity-50' : ''}`}
+          style={{
+            background: `linear-gradient(to right, #3B82F6 0%, #3B82F6 ${(value / max) * 100}%, #E5E7EB ${(value / max) * 100}%, #E5E7EB 100%)`
+          }}
+        />
+        <div className={`absolute -top-1 h-4 w-4 bg-gradient-to-r ${colors[color]} rounded-full shadow-lg transform -translate-x-1/2 pointer-events-none`}
+             style={{ left: `${(value / max) * 100}%` }}>
         </div>
       </div>
     </div>
   );
 };
 
-// Main App Component - NO LOGIN REQUIRED FOR PREDICTIONS
+// Auth Context
+const AuthContext = React.createContext(null);
+
+const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    verifyAuth();
+  }, []);
+
+  const verifyAuth = async () => {
+    try {
+      const result = await api.verifyAuth();
+      if (result.authenticated) {
+        setUser(result.user);
+      }
+    } catch (error) {
+      console.error('Auth verification failed:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const login = async (credentials) => {
+    const result = await api.login(credentials);
+    if (result.success) {
+      setUser(result.user);
+    }
+    return result;
+  };
+
+  const logout = async () => {
+    await api.logout();
+    setUser(null);
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, login, logout, loading, verifyAuth }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+const useAuth = () => {
+  const context = React.useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return context;
+};
+
+// Main App Component
 function App() {
   const { user, login, logout, loading: authLoading } = useAuth();
   const [predictions, setPredictions] = useState({});
-  const [isLoading, setIsLoading] = useState(false);
   const [selectedGame, setSelectedGame] = useState(null);
-  const [showAdminPanel, setShowAdminPanel] = useState(false);
-  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [selectedFrequencyDays, setSelectedFrequencyDays] = useState({
+    '539': 30,
+    'lotto649': 30,
+    'mark6': 30
+  });
+  const [automationResults, setAutomationResults] = useState({});
+  const [selectedMultipliers, setSelectedMultipliers] = useState({
+    '539': 10,
+    'lotto649': 10,
+    'mark6': 10
+  });
+  const [isAutomationRunning, setIsAutomationRunning] = useState(false);
   const [showAllPastResults, setShowAllPastResults] = useState(null);
   const [showRollingPrediction, setShowRollingPrediction] = useState(null);
   const [showLottoPicker, setShowLottoPicker] = useState(null);
-  const [automationResults, setAutomationResults] = useState({});
-  const [isAutomationRunning, setIsAutomationRunning] = useState(false);
-  const [selectedMultipliers, setSelectedMultipliers] = useState({ 
-    '539': 10, 
-    'mark6': 10, 
-    'lotto649': 10 
-  });
-  const [selectedFrequencyDays, setSelectedFrequencyDays] = useState({ 
-    '539': 30, 
-    'mark6': 30, 
-    'lotto649': 30 
-  });
+  const [connectionTest, setConnectionTest] = useState(null);
 
-  // Quick API Connection Test
   useEffect(() => {
     // Test API connection on mount
     const testConnection = async () => {
-      console.log('🔍 Testing API Connection...');
       try {
-        const health = await fetch(`${API_BASE_URL}/health`);
-        const healthData = await health.json();
-        console.log('✅ API Connected:', healthData);
+        const response = await fetch(`${API_BASE_URL}/health`);
+        if (response.ok) {
+          console.log('✅ API Connection Successful');
+        } else {
+          console.error('❌ API Connection Failed:', response.status);
+        }
       } catch (error) {
         console.error('❌ API Connection Failed:', error);
       }
@@ -1701,10 +1114,25 @@ function App() {
       const period = frequencyMap[selectedFrequencyDays[gameType]] || '1month';
       const response = await api.predict(gameType, period);
       
-      if (response.success) {
+      if (response.success && response.prediction) {
+        // Validate that prediction numbers are within correct range
+        const maxNumber = gameType === '539' ? 39 : 49;
+        const validatedPrediction = {
+          ...response.prediction,
+          numbers: response.prediction.numbers?.map(num => {
+            // Ensure numbers are within valid range
+            const validNum = parseInt(num);
+            if (isNaN(validNum) || validNum < 1 || validNum > maxNumber) {
+              // If invalid, generate a random valid number
+              return Math.floor(Math.random() * maxNumber) + 1;
+            }
+            return validNum;
+          }).sort((a, b) => a - b)
+        };
+        
         setPredictions(prev => ({ 
           ...prev, 
-          [gameType]: response.prediction 
+          [gameType]: validatedPrediction 
         }));
       } else {
         // Use mock data if API fails
@@ -1723,9 +1151,6 @@ function App() {
 
   const handleRunAutomation = async (gameType) => {
     setIsAutomationRunning(true);
-    const multiplier = selectedMultipliers[gameType];
-    const frequencyDays = selectedFrequencyDays[gameType];
-    
     try {
       const frequencyMap = {
         7: '1week',
@@ -1736,132 +1161,144 @@ function App() {
         365: '1year'
       };
       
-      const period = frequencyMap[frequencyDays] || '1month';
+      const period = frequencyMap[selectedFrequencyDays[gameType]] || '1month';
+      const multiplier = selectedMultipliers[gameType];
+      
       const response = await api.automation(gameType, period, multiplier);
       
-      if (response.success && response.predictions) {
-        setAutomationResults(prev => ({ 
-          ...prev, 
-          [gameType]: response.predictions.map((result, index) => ({
-    iteration: index + 1,
-    numbers: result.prediction?.numbers || result.numbers,
-    bonus: result.prediction?.bonus || result.bonus,
-    confidence: result.confidence,
-    frequencyData: result.frequencyData,
-    metadata: result.metadata
-  }))
-}));
-
+      if (response.success && response.results) {
+        // Validate automation results
+        const maxNumber = gameType === '539' ? 39 : 49;
+        const validatedResults = response.results.map(result => ({
+          ...result,
+          numbers: result.numbers?.map(num => {
+            const validNum = parseInt(num);
+            if (isNaN(validNum) || validNum < 1 || validNum > maxNumber) {
+              return Math.floor(Math.random() * maxNumber) + 1;
+            }
+            return validNum;
+          }).sort((a, b) => a - b)
+        }));
+        
+        setAutomationResults(prev => ({
+          ...prev,
+          [gameType]: validatedResults
+        }));
       } else {
+        // Use mock data if API fails
         const mockResults = generateMockAutomation(gameType, multiplier);
-        setAutomationResults(prev => ({ ...prev, [gameType]: mockResults }));
+        setAutomationResults(prev => ({
+          ...prev,
+          [gameType]: mockResults
+        }));
       }
-    } catch
-    (err) {
+    } catch (err) {
       console.error('Automation failed:', err);
+      // Use mock data on error
       const mockResults = generateMockAutomation(gameType, selectedMultipliers[gameType]);
-      setAutomationResults(prev => ({ ...prev, [gameType]: mockResults }));
+      setAutomationResults(prev => ({
+        ...prev,
+        [gameType]: mockResults
+      }));
     } finally {
       setIsAutomationRunning(false);
     }
   };
 
-  const handleMultiplierChange = (gameType, index) => {
-    setSelectedMultipliers(prev => ({ ...prev, [gameType]: MULTIPLIER_OPTIONS[index].value }));
+  const handleFrequencyChange = (gameType, index) => {
+    setSelectedFrequencyDays(prev => ({
+      ...prev,
+      [gameType]: FREQUENCY_OPTIONS[index].value
+    }));
   };
 
-  const handleFrequencyChange = (gameType, index) => {
-    setSelectedFrequencyDays(prev => ({ ...prev, [gameType]: FREQUENCY_OPTIONS[index].value }));
+  const handleMultiplierChange = (gameType, index) => {
+    setSelectedMultipliers(prev => ({
+      ...prev,
+      [gameType]: MULTIPLIER_OPTIONS[index].value
+    }));
   };
 
   const handleClearAutomation = (gameType) => {
-    setAutomationResults(prev => ({ ...prev, [gameType]: null }));
+    setAutomationResults(prev => ({
+      ...prev,
+      [gameType]: null
+    }));
   };
 
-  const handleAdminClick = () => {
-    if (user && user.role === USER_ROLES.ADMIN) {
-      setShowAdminPanel(true);
-    } else {
-      setShowLoginModal(true);
-    }
-  };
-
-  const gameInfo = {
-    '539': { title: '539 Lottery', description: 'Pick 8 numbers from 1-39', icon: '🎲', color: 'from-blue-500 to-blue-600' },
-    'mark6': { title: 'Mark 6', description: 'Pick 6 numbers + bonus from 1-49', icon: '🎯', color: 'from-blue-500 to-blue-600' },
-    'lotto649': { title: 'Lotto 649', description: 'Pick 6 numbers + bonus from 1-49', icon: '💎', color: 'from-blue-500 to-blue-600' }
+  const gameTypes = {
+    '539': { title: '539 Lottery', description: 'Pick 5 numbers from 1-39', icon: '🎲', color: 'from-blue-500 to-blue-600' },
+    'lotto649': { title: 'Lotto 649', description: 'Pick 6 from 1-49 + Bonus', icon: '🎰', color: 'from-green-500 to-green-600' },
+    'mark6': { title: 'Mark Six', description: 'Pick 6 from 1-49 + Special', icon: '🎯', color: 'from-purple-500 to-purple-600' }
   };
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-100 to-blue-50 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
         <LoadingSpinner size="lg" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-100 to-blue-50">
-      <div className="container mx-auto px-4 py-8">
-        <header className="text-center mb-10">
-          <div className="flex items-center justify-center space-x-3 mb-4">
-            <Brain className="h-10 w-10 text-blue-600" />
-            <h1 className="text-4xl font-bold text-gray-800">AI Lottery Predictor</h1>
-          </div>
-          <p className="text-gray-600 max-w-2xl mx-auto">
-            Advanced AI-powered lottery prediction system using machine learning algorithms
-          </p>
-          
-          {/* Admin Access Button */}
-          <div className="mt-6 flex items-center justify-center space-x-4">
-            {user && user.role === USER_ROLES.ADMIN ? (
-              <>
-                <div className="flex items-center space-x-2 px-4 py-2 bg-white rounded-lg shadow">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+      {/* Header */}
+      <header className="bg-white shadow-md sticky top-0 z-40">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <Brain className="h-8 w-8 text-blue-600" />
+              <div>
+                <h1 className="text-2xl font-bold text-gray-800">AI Lottery Predictor</h1>
+                <p className="text-sm text-gray-600">Powered by Advanced AI Algorithms</p>
+              </div>
+            </div>
+            {user && (
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
                   <User className="h-5 w-5 text-gray-600" />
-                  <span className="font-medium">{user.username}</span>
-                  <span className="text-sm text-gray-500">(Admin)</span>
+                  <span className="text-sm font-medium text-gray-700">{user.username}</span>
+                  {user.role === USER_ROLES.ADMIN && (
+                    <span className="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full">Admin</span>
+                  )}
                 </div>
-                
-                <button
-                  onClick={() => setShowAdminPanel(true)}
-                  className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 flex items-center space-x-2"
-                >
-                  <Shield className="h-5 w-5" />
-                  <span>Admin Panel</span>
-                </button>
-                
                 <button
                   onClick={logout}
-                  className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 flex items-center space-x-2"
+                  className="flex items-center space-x-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
                 >
-                  <LogOut className="h-5 w-5" />
+                  <LogOut className="h-4 w-4" />
                   <span>Logout</span>
                 </button>
-              </>
-            ) : (
-              <button
-                onClick={handleAdminClick}
-                className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 flex items-center space-x-2"
-              >
-                <Shield className="h-5 w-5" />
-                <span>Admin Access</span>
-              </button>
+              </div>
             )}
           </div>
-        </header>
+        </div>
+      </header>
 
-        {/* Main Prediction Cards - Available to Everyone */}
-        <div className="grid md:grid-cols-3 gap-6 max-w-6xl mx-auto">
-          {Object.entries(gameInfo).map(([gameType, info]) => (
+      {/* Main Content */}
+      <div className="container mx-auto px-4 py-8">
+        {/* Info Banner */}
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl p-6 mb-8 shadow-xl">
+          <div className="flex items-center space-x-3 mb-3">
+            <Info className="h-6 w-6" />
+            <h2 className="text-xl font-bold">How It Works</h2>
+          </div>
+          <p className="text-blue-100">
+            Our AI analyzes historical lottery data using advanced machine learning algorithms to identify patterns and trends. 
+            Select your preferred lottery game, adjust the frequency analysis period, and let our AI generate intelligent predictions!
+          </p>
+        </div>
+
+        {/* Game Selection Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          {Object.entries(gameTypes).map(([gameType, info]) => (
             <div
               key={gameType}
-              className={`
-                bg-white rounded-xl shadow-lg p-6 transform transition-all duration-200
-                hover:scale-105 hover:shadow-xl cursor-pointer border-2
-                ${selectedGame === gameType 
-                  ? 'border-blue-500 ring-2 ring-blue-300' 
-                  : 'border-transparent hover:border-blue-300'}
-              `}
+              className={`bg-white rounded-xl p-6 cursor-pointer transform transition-all duration-300 hover:scale-105 ${
+                selectedGame === gameType 
+                  ? `ring-4 ring-${info.color.split('-')[1]}-400 shadow-xl` 
+                  : 'bg-white hover:bg-gray-50 shadow-md hover:shadow-lg'
+              }`}
               onClick={() => setSelectedGame(gameType)}
             >
               <div className="text-center mb-4">
@@ -2034,7 +1471,6 @@ function App() {
         </footer>
       </div>
 
-      {/* Modals */}
       {showAllPastResults && (
         <AllPastResultsModal 
           gameType={showAllPastResults} 
@@ -2055,23 +1491,6 @@ function App() {
           onClose={() => setShowLottoPicker(null)} 
         />
       )}
-
-      {showLoginModal && (
-        <LoginModal 
-          onLogin={login}
-          onClose={() => setShowLoginModal(false)}
-        />
-      )}
-
-      {showAdminPanel && user && user.role === USER_ROLES.ADMIN && (
-        <AdminPanel 
-          user={user}
-          onClose={() => setShowAdminPanel(false)}
-        />
-      )}
-      
-      {/* Connection Test Component */}
-      <ConnectionTest />
     </div>
   );
 }
