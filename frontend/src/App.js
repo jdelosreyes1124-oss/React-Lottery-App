@@ -2142,12 +2142,48 @@ const AdminPanel = ({ onClose }) => {
   const loadHistoricalResults = async (gameType, page = 1, append = false) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/admin/historical-results/${gameType}?page=${page}&limit=50`, {
+      const response = await fetch(`${API_BASE_URL}/admin/historical-results/${gameType}?page=${page}&limit=50`, {
         credentials: 'include'
       });
       
+      if (response.status === 401) throw new Error('Not authenticated');
       if (response.status === 403) throw new Error('Admin access required');
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      
+      // Handle HTML or non-JSON responses
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        // If we get HTML, it might be a login page or error page
+        const text = await response.text();
+        console.error('Got non-JSON response:', text.substring(0, 200));
+        // Use mock data as fallback
+        const mockResults = [];
+        const maxNumber = gameType === '539' ? 39 : 49;
+        const numberCount = gameType === '539' ? 5 : 6;
+        for (let i = 0; i < 20; i++) {
+          const numbers = [];
+          while (numbers.length < numberCount) {
+            const num = Math.floor(Math.random() * maxNumber) + 1;
+            if (!numbers.includes(num)) numbers.push(num);
+          }
+          const date = new Date();
+          date.setDate(date.getDate() - (i * 3));
+          mockResults.push({
+            _id: 'mock-' + i,
+            drawDate: date.toISOString().split('T')[0],
+            numbers: numbers.sort((a, b) => a - b),
+            bonus: gameType !== '539' ? Math.floor(Math.random() * maxNumber) + 1 : null
+          });
+        }
+        setHistoricalResults(prev => ({
+          ...prev,
+          [gameType]: { results: mockResults }
+        }));
+        showNotification('Using mock data - Server returned HTML instead of JSON', 'warning');
+        setIsLoading(false);
+        return;
+      }
+      
+      if (!response.ok) throw new Error('HTTP ' + response.status);
       
       const data = await response.json();
       
@@ -2573,7 +2609,7 @@ const UserMenu = () => {
               className="flex items-center space-x-2 px-3 py-1 bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 hover:scale-105 transition-all duration-200"
             >
               <Shield className="h-4 w-4" />
-              <span className="text-sm">Data</span>
+              <span className="text-sm">Admin Panel</span>
             </button>
           )}
           
@@ -2751,6 +2787,7 @@ function App() {
   const [showAllPastResults, setShowAllPastResults] = useState(null);
   const [showRollingPrediction, setShowRollingPrediction] = useState(null);
   const [showLottoPicker, setShowLottoPicker] = useState(null);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
 
   const handlePredict = async (gameType, customPrediction = null) => {
     if (customPrediction) {
