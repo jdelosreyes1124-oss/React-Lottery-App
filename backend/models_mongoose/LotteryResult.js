@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const lotteryResultSchema = new mongoose.Schema({
-  _id: Number,
+  // Remove the _id field completely - MongoDB will handle it
   gameType: { type: String, enum: ['539', 'mark6', 'lotto649'], required: true },
   drawDate: Date,
   numbers: [Number],
