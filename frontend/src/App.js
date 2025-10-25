@@ -2284,47 +2284,85 @@ const AdminPanel = ({ onClose }) => {
     loadHistoricalResults(selectedGameType, nextPage, true);
   };
 
-  const handleAddResult = async () => {
-    const numbers = [];
-    const numberCount = selectedGameType === '539' ? 5 : 6;
+  // Fixed handleAddResult function for App.js
+// Replace the handleAddResult function (around line 2287-2327) with this version:
+
+const handleAddResult = async () => {
+  const numbers = [];
+  const numberCount = selectedGameType === '539' ? 5 : 6;
+  
+  // Validate and collect numbers
+  for (let i = 1; i <= numberCount; i++) {
+    const num = parseInt(newResult[`number${i}`]);
+    if (isNaN(num) || num < 1) {
+      showNotification(`Please enter valid number ${i}`, 'error');
+      return;
+    }
+    numbers.push(num);
+  }
+
+  // Build the result object
+  const result = {
+    numbers,
+    drawDate: newResult.drawDate || new Date().toISOString().split('T')[0]
+  };
+
+  // Add bonus number if applicable
+  if (newResult.bonus && (selectedGameType === 'mark6' || selectedGameType === 'lotto649')) {
+    const bonusNum = parseInt(newResult.bonus);
+    if (!isNaN(bonusNum)) {
+      result.bonus = bonusNum;
+    }
+  }
+
+  setIsLoading(true);
+  try {
+    // IMPORTANT: Capture the response from the API
+    const response = await api.addHistoricalResult(selectedGameType, result);
     
-    for (let i = 1; i <= numberCount; i++) {
-      const num = parseInt(newResult[`number${i}`]);
-      if (isNaN(num) || num < 1) {
-        showNotification(`Please enter valid number ${i}`, 'error');
-        return;
-      }
-      numbers.push(num);
-    }
-
-    const result = {
-      numbers,
-      drawDate: newResult.drawDate || new Date().toISOString().split('T')[0]
-    };
-
-    if (newResult.bonus && (selectedGameType === 'mark6' || selectedGameType === 'lotto649')) {
-      const bonusNum = parseInt(newResult.bonus);
-      if (!isNaN(bonusNum)) {
-        result.bonus = bonusNum;
-      }
-    }
-
-    setIsLoading(true);
-    try {
-      await api.addHistoricalResult(selectedGameType, result);
+    // Check if successful and use the returned data
+    if (response && response.success) {
+      // Clear the form
       setNewResult({ 
         number1: '', number2: '', number3: '', number4: '', number5: '', number6: '',
         bonus: '', drawDate: '' 
       });
       setShowAddForm(false);
-      loadHistoricalResults(selectedGameType, 1);
-      showNotification('Result added successfully', 'success');
-    } catch (error) {
-      showNotification('Failed to add result: ' + error.message, 'error');
-    } finally {
-      setIsLoading(false);
+      
+      // If backend returns updated results, use them directly
+      if (response.results) {
+        setHistoricalResults(prev => ({
+          ...prev,
+          [selectedGameType]: {
+            results: response.results
+          }
+        }));
+        
+        // Update pagination if total is provided
+        if (response.total !== undefined) {
+          setPagination(prev => ({
+            ...prev,
+            total: response.total,
+            totalPages: Math.ceil(response.total / prev.limit)
+          }));
+        }
+        
+        showNotification(`Result added successfully! Total: ${response.total || response.results.length}`, 'success');
+      } else {
+        // Fallback: reload results from backend
+        await loadHistoricalResults(selectedGameType, 1);
+        showNotification('Result added successfully!', 'success');
+      }
+    } else {
+      // Handle failure response
+      showNotification(response?.error || 'Failed to add result', 'error');
     }
-  };
+  } catch (error) {
+    showNotification('Failed to add result: ' + error.message, 'error');
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   const handleDeleteResult = async (resultId) => {
     const confirmed = await showConfirm('Are you sure you want to delete this result?');

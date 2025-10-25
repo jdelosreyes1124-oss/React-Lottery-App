@@ -48,16 +48,33 @@ function excelDateToJSDate(serial) {
 function parseDate(dateString) {
   if (!dateString) return new Date();
   
+  // Handle MM/DD/YYYY format
   if (dateString.includes('/')) {
     const parts = dateString.split('/');
     if (parts.length === 3) {
-      return new Date(parts[2], parts[0] - 1, parts[1]);
+      // Assume MM/DD/YYYY format
+      const month = parseInt(parts[0]) - 1; // JavaScript months are 0-indexed
+      const day = parseInt(parts[1]);
+      const year = parseInt(parts[2]);
+      return new Date(year, month, day);
     }
-  } else if (dateString.includes('-')) {
+  }
+  
+  // Handle YYYY-MM-DD format
+  if (dateString.includes('-')) {
     return new Date(dateString);
   }
   
   return new Date(dateString);
+}
+
+// Helper: Format date for consistent storage
+function formatDateString(dateString) {
+  const date = parseDate(dateString);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${month}/${day}/${year}`;
 }
 
 // Helper: Read Excel file 
@@ -180,7 +197,7 @@ router.get('/historical-results/539', async (req, res) => {
   try {
     console.log('[INFO] Loading 539 historical results...');
     let results = [];
-    let dataSource = 'excel'; // Track where data came from
+    let dataSource = 'excel';
     
     // Try MongoDB first if connected
     if (mongoose.connection && mongoose.connection.readyState === 1) {
@@ -197,12 +214,11 @@ router.get('/historical-results/539', async (req, res) => {
             console.log(`[SUCCESS] Loaded ${mongoResults.length} results from MongoDB`);
             dataSource = 'mongodb';
             
-            // Format MongoDB results to match expected structure
             results = mongoResults.map((result, index) => ({
               _id: result._id,
               id: index,
               drawDate: result.drawDate instanceof Date 
-                ? result.drawDate.toISOString().split('T')[0]
+                ? formatDateString(result.drawDate.toISOString())
                 : result.drawDate,
               numbers: result.numbers || []
             }));
@@ -220,12 +236,11 @@ router.get('/historical-results/539', async (req, res) => {
       dataSource = 'excel';
     }
     
-    // Return response in the format the frontend expects
     res.json({
       success: true,
       results: results,
       total: results.length,
-      dataSource: dataSource // Optional: let frontend know where data came from
+      dataSource: dataSource
     });
     
   } catch (error) {
@@ -233,7 +248,7 @@ router.get('/historical-results/539', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       error: error.message,
-      results: [], // Return empty array so frontend doesn't break
+      results: [],
       total: 0
     });
   }
@@ -242,18 +257,41 @@ router.get('/historical-results/539', async (req, res) => {
 // POST /api/admin/historical-results/539/add
 router.post('/historical-results/539/add', async (req, res) => {
   try {
-    console.log('[INFO] Adding new result:', req.body);
-    const { drawDate, numbers } = req.body;
+    console.log('[INFO] Adding new result - Request body:', req.body);
+    
+    // Extract drawDate and numbers from request body
+    // Handle both formats: { drawDate, numbers } or individual number fields
+    let { drawDate, numbers } = req.body;
+    
+    // If numbers not provided as array, check for individual number fields
+    if (!numbers || !Array.isArray(numbers)) {
+      // Check for number1, number2, etc. fields (from frontend form)
+      const extractedNumbers = [];
+      for (let i = 1; i <= 5; i++) {
+        const num = req.body[`number${i}`] || req.body[`number_${i}`] || req.body[`num${i}`];
+        if (num !== undefined && num !== null && num !== '') {
+          extractedNumbers.push(parseInt(num));
+        }
+      }
+      
+      if (extractedNumbers.length === 5) {
+        numbers = extractedNumbers;
+        console.log('[INFO] Extracted numbers from individual fields:', numbers);
+      }
+    }
 
-    // Validate input
+    // Validate draw date
     if (!drawDate) {
+      console.log('[ERROR] Draw date is missing');
       return res.status(400).json({
         success: false,
         error: 'Draw date is required'
       });
     }
 
+    // Validate numbers
     if (!numbers || !Array.isArray(numbers) || numbers.length !== 5) {
+      console.log('[ERROR] Invalid numbers:', numbers);
       return res.status(400).json({
         success: false,
         error: 'Exactly 5 numbers are required'
@@ -262,28 +300,36 @@ router.post('/historical-results/539/add', async (req, res) => {
 
     // Ensure numbers are integers
     const parsedNumbers = numbers.map(n => parseInt(n));
+    console.log('[INFO] Parsed numbers:', parsedNumbers);
 
-    // Validate number range
+    // Validate number range (1-39 for 539 lottery)
     if (parsedNumbers.some(n => isNaN(n) || n < 1 || n > 39)) {
+      console.log('[ERROR] Numbers out of range:', parsedNumbers);
       return res.status(400).json({
         success: false,
         error: 'All numbers must be between 1 and 39'
       });
     }
 
-    // Check for duplicates
+    // Check for duplicate numbers
     if (new Set(parsedNumbers).size !== 5) {
+      console.log('[ERROR] Duplicate numbers found:', parsedNumbers);
       return res.status(400).json({
         success: false,
-        error: 'Numbers must be unique'
+        error: 'Numbers must be unique (no duplicates allowed)'
       });
     }
 
-    // Sort numbers
+    // Sort numbers in ascending order
     const sortedNumbers = parsedNumbers.sort((a, b) => a - b);
     
-    // Generate numeric ID
+    // Format the date consistently
+    const formattedDate = formatDateString(drawDate);
+    console.log('[INFO] Formatted date:', formattedDate);
+    
+    // Generate unique numeric ID
     const newId = generateNumericId();
+    console.log('[INFO] Generated ID:', newId);
     
     let savedToMongoDB = false;
     let allResults = [];
@@ -295,12 +341,22 @@ router.post('/historical-results/539/add', async (req, res) => {
         
         if (LotteryResult) {
           // Check for existing result with same date
+          const parsedDateObj = parseDate(drawDate);
+          const startOfDay = new Date(parsedDateObj);
+          startOfDay.setHours(0, 0, 0, 0);
+          const endOfDay = new Date(parsedDateObj);
+          endOfDay.setHours(23, 59, 59, 999);
+          
           const existing = await LotteryResult.findOne({ 
-            gameType: '539', 
-            drawDate: parseDate(drawDate) 
+            gameType: '539',
+            drawDate: {
+              $gte: startOfDay,
+              $lte: endOfDay
+            }
           });
           
           if (existing) {
+            console.log('[WARNING] Result already exists for date:', formattedDate);
             return res.status(400).json({
               success: false,
               error: 'A result for this date already exists'
@@ -311,7 +367,7 @@ router.post('/historical-results/539/add', async (req, res) => {
           const newDoc = new LotteryResult({
             _id: newId,
             gameType: '539',
-            drawDate: parseDate(drawDate),
+            drawDate: parsedDateObj,
             numbers: sortedNumbers,
             source: 'manual'
           });
@@ -331,7 +387,7 @@ router.post('/historical-results/539/add', async (req, res) => {
             _id: result._id,
             id: index,
             drawDate: result.drawDate instanceof Date 
-              ? result.drawDate.toISOString().split('T')[0]
+              ? formatDateString(result.drawDate.toISOString())
               : result.drawDate,
             numbers: result.numbers
           }));
@@ -340,9 +396,12 @@ router.post('/historical-results/539/add', async (req, res) => {
           writeExcelFile(allResults);
         }
       } catch (mongoError) {
-        console.error('[WARNING] MongoDB save failed, using Excel only:', mongoError.message);
+        console.error('[WARNING] MongoDB save failed:', mongoError);
+        console.error('MongoDB error details:', mongoError.message);
         savedToMongoDB = false;
       }
+    } else {
+      console.log('[INFO] MongoDB not connected, using Excel only');
     }
     
     // If MongoDB failed or not connected, use Excel
@@ -351,8 +410,13 @@ router.post('/historical-results/539/add', async (req, res) => {
       const currentData = readExcelFile();
       
       // Check if date already exists
-      const dateExists = currentData.some(row => row.drawDate === drawDate);
+      const dateExists = currentData.some(row => {
+        const rowDate = formatDateString(row.drawDate);
+        return rowDate === formattedDate;
+      });
+      
       if (dateExists) {
+        console.log('[WARNING] Result already exists in Excel for date:', formattedDate);
         return res.status(400).json({
           success: false,
           error: 'A result for this date already exists'
@@ -363,7 +427,7 @@ router.post('/historical-results/539/add', async (req, res) => {
       const newResult = {
         _id: newId,
         id: 0,
-        drawDate: drawDate,
+        drawDate: formattedDate,
         numbers: sortedNumbers
       };
       
@@ -377,35 +441,40 @@ router.post('/historical-results/539/add', async (req, res) => {
       
       // Write to Excel
       if (!writeExcelFile(currentData)) {
+        console.log('[ERROR] Failed to write to Excel file');
         return res.status(500).json({
           success: false,
-          error: 'Failed to write to Excel file'
+          error: 'Failed to save data to Excel file'
         });
       }
       
       allResults = currentData;
-      console.log(`[SUCCESS] Added to Excel: ${drawDate} - ${sortedNumbers.join(', ')}`);
+      console.log(`[SUCCESS] Added to Excel: ${formattedDate} - ${sortedNumbers.join(', ')}`);
     }
     
     // Return success response
-    res.json({
+    const response = {
       success: true,
       message: 'Result added successfully',
       result: {
         _id: newId,
         id: 0,
-        drawDate: drawDate,
+        drawDate: formattedDate,
         numbers: sortedNumbers
       },
       results: allResults,
       total: allResults.length
-    });
+    };
+    
+    console.log('[SUCCESS] Sending response with', allResults.length, 'total results');
+    res.json(response);
     
   } catch (error) {
     console.error('[ERROR] Failed to add result:', error);
+    console.error('Stack trace:', error.stack);
     res.status(500).json({ 
       success: false, 
-      error: error.message 
+      error: error.message || 'Internal server error'
     });
   }
 });
@@ -444,6 +513,7 @@ router.put('/historical-results/539/:id', async (req, res) => {
     }
 
     const sortedNumbers = parsedNumbers.sort((a, b) => a - b);
+    const formattedDate = formatDateString(drawDate);
     let updated = false;
     let allResults = [];
 
@@ -466,7 +536,6 @@ router.put('/historical-results/539/:id', async (req, res) => {
             updated = true;
             console.log('[SUCCESS] Updated in MongoDB');
             
-            // Get all results
             const mongoResults = await LotteryResult.find({ gameType: '539' })
               .sort({ drawDate: -1 })
               .lean()
@@ -476,12 +545,11 @@ router.put('/historical-results/539/:id', async (req, res) => {
               _id: result._id,
               id: index,
               drawDate: result.drawDate instanceof Date 
-                ? result.drawDate.toISOString().split('T')[0]
+                ? formatDateString(result.drawDate.toISOString())
                 : result.drawDate,
               numbers: result.numbers
             }));
             
-            // Update Excel backup
             writeExcelFile(allResults);
           }
         }
@@ -502,10 +570,9 @@ router.put('/historical-results/539/:id', async (req, res) => {
         });
       }
 
-      // Update the result
       currentData[index] = {
         ...currentData[index],
-        drawDate,
+        drawDate: formattedDate,
         numbers: sortedNumbers
       };
 
@@ -563,7 +630,6 @@ router.delete('/historical-results/539/:id', async (req, res) => {
             deleted = true;
             console.log('[SUCCESS] Deleted from MongoDB');
             
-            // Get remaining results
             const mongoResults = await LotteryResult.find({ gameType: '539' })
               .sort({ drawDate: -1 })
               .lean()
@@ -573,12 +639,11 @@ router.delete('/historical-results/539/:id', async (req, res) => {
               _id: result._id,
               id: index,
               drawDate: result.drawDate instanceof Date 
-                ? result.drawDate.toISOString().split('T')[0]
+                ? formatDateString(result.drawDate.toISOString())
                 : result.drawDate,
               numbers: result.numbers
             }));
             
-            // Update Excel backup
             writeExcelFile(allResults);
           }
         }
@@ -599,10 +664,8 @@ router.delete('/historical-results/539/:id', async (req, res) => {
         });
       }
 
-      // Remove the result
       currentData.splice(index, 1);
 
-      // Re-index
       currentData.forEach((row, idx) => {
         row.id = idx;
       });
@@ -647,10 +710,8 @@ router.post('/historical-results/539/sync', async (req, res) => {
         const LotteryResult = getLotteryResultModel();
         
         if (LotteryResult) {
-          // Clear existing MongoDB data for 539
           await LotteryResult.deleteMany({ gameType: '539' });
           
-          // Insert all results from Excel
           if (excelResults.length > 0) {
             const mongoDocuments = excelResults.map(r => ({
               _id: r._id || generateNumericId(),
@@ -663,7 +724,6 @@ router.post('/historical-results/539/sync', async (req, res) => {
             await LotteryResult.insertMany(mongoDocuments, { ordered: false });
             console.log(`[SUCCESS] Synced ${mongoDocuments.length} results to MongoDB`);
             
-            // Get fresh data from MongoDB
             const mongoResults = await LotteryResult.find({ gameType: '539' })
               .sort({ drawDate: -1 })
               .lean()
@@ -673,7 +733,7 @@ router.post('/historical-results/539/sync', async (req, res) => {
               _id: result._id,
               id: index,
               drawDate: result.drawDate instanceof Date 
-                ? result.drawDate.toISOString().split('T')[0]
+                ? formatDateString(result.drawDate.toISOString())
                 : result.drawDate,
               numbers: result.numbers
             }));
