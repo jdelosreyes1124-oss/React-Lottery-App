@@ -138,130 +138,6 @@ function isMongoDBAvailable() {
          LotteryResultModel;
 }
 
-// ============================================
-// AUTO-SYNC FUNCTIONALITY
-// ============================================
-
-/**
- * Automatically sync Excel data to MongoDB
- * This function is called whenever we write to Excel
- */
-async function syncExcelToMongoDB(excelData) {
-  if (!isMongoDBAvailable()) {
-    console.log('[SYNC] MongoDB not available, skipping sync');
-    return false;
-  }
-
-  try {
-    console.log('[SYNC] Starting Excel to MongoDB sync...');
-    
-    let synced = 0;
-    let skipped = 0;
-    let failed = 0;
-
-    for (const record of excelData) {
-      try {
-        // Check if record already exists in MongoDB
-        const existingRecord = await LotteryResultModel.findOne({
-          gameType: '539',
-          drawDate: parseDate(record.drawDate)
-        });
-
-        if (!existingRecord) {
-          // Create new record in MongoDB
-          const newRecord = new LotteryResultModel({
-            gameType: '539',
-            drawDate: parseDate(record.drawDate),
-            numbers: record.numbers,
-            source: 'excel_sync',
-            metadata: {
-              syncedAt: new Date(),
-              syncedFrom: 'excel',
-              originalId: record.id
-            }
-          });
-
-          await newRecord.save();
-          synced++;
-          console.log(`[SYNC] Added record for ${record.drawDate}`);
-        } else {
-          // Update existing record if numbers are different
-          const numbersMatch = JSON.stringify(existingRecord.numbers.sort()) === 
-                              JSON.stringify(record.numbers.sort());
-          
-          if (!numbersMatch) {
-            existingRecord.numbers = record.numbers;
-            existingRecord.metadata = {
-              ...existingRecord.metadata,
-              lastSyncedAt: new Date(),
-              syncedFrom: 'excel'
-            };
-            await existingRecord.save();
-            synced++;
-            console.log(`[SYNC] Updated record for ${record.drawDate}`);
-          } else {
-            skipped++;
-          }
-        }
-      } catch (recordError) {
-        console.error(`[SYNC] Failed to sync record for ${record.drawDate}:`, recordError.message);
-        failed++;
-      }
-    }
-
-    console.log(`[SYNC] Sync completed: ${synced} synced, ${skipped} skipped, ${failed} failed`);
-    return true;
-
-  } catch (error) {
-    console.error('[SYNC] Excel to MongoDB sync failed:', error.message);
-    return false;
-  }
-}
-
-/**
- * Sync MongoDB data to Excel (reverse sync)
- * Useful when MongoDB has data that Excel doesn't
- */
-async function syncMongoDBToExcel() {
-  if (!isMongoDBAvailable()) {
-    return false;
-  }
-
-  try {
-    console.log('[SYNC] Starting MongoDB to Excel sync...');
-    
-    // Get all MongoDB records
-    const mongoRecords = await LotteryResultModel.find({ gameType: '539' })
-      .sort({ drawDate: -1 })
-      .lean();
-
-    if (!mongoRecords || mongoRecords.length === 0) {
-      console.log('[SYNC] No MongoDB records to sync');
-      return false;
-    }
-
-    // Convert to Excel format
-    const excelData = mongoRecords.map((record, index) => ({
-      id: index,
-      drawDate: formatDateString(record.drawDate),
-      numbers: record.numbers || []
-    }));
-
-    // Write to Excel
-    const success = writeExcelFile(excelData);
-    
-    if (success) {
-      console.log(`[SYNC] Successfully synced ${excelData.length} records from MongoDB to Excel`);
-    }
-    
-    return success;
-
-  } catch (error) {
-    console.error('[SYNC] MongoDB to Excel sync failed:', error.message);
-    return false;
-  }
-}
-
 // Helper: Read Excel file
 function readExcelFile() {
   try {
@@ -272,25 +148,13 @@ function readExcelFile() {
     }
     
     if (!fs.existsSync(EXCEL_539_PATH)) {
-      // If Excel doesn't exist but MongoDB has data, create Excel from MongoDB
-      if (isMongoDBAvailable()) {
-        console.log('[INFO] Excel file not found, attempting to create from MongoDB...');
-        syncMongoDBToExcel();
-        
-        // If sync was successful, the file should now exist
-        if (fs.existsSync(EXCEL_539_PATH)) {
-          return readExcelFile(); // Recursive call to read the newly created file
-        }
-      }
-      
-      // Create empty Excel file if no MongoDB data
       const emptyWorkbook = XLSX.utils.book_new();
       const emptySheet = XLSX.utils.aoa_to_sheet([
         ['Date', 'Number 1', 'Number 2', 'Number 3', 'Number 4', 'Number 5']
       ]);
       XLSX.utils.book_append_sheet(emptyWorkbook, emptySheet, 'Results');
       XLSX.writeFile(emptyWorkbook, EXCEL_539_PATH);
-      console.log('[INFO] Created new empty Excel file');
+      console.log('[INFO] Created new Excel file');
       return [];
     }
 
@@ -329,8 +193,8 @@ function readExcelFile() {
   }
 }
 
-// Helper: Write Excel file with auto-sync to MongoDB
-function writeExcelFile(data, skipSync = false) {
+// Helper: Write Excel file
+function writeExcelFile(data) {
   try {
     const dataDir = path.dirname(EXCEL_539_PATH);
     if (!fs.existsSync(dataDir)) {
@@ -353,20 +217,6 @@ function writeExcelFile(data, skipSync = false) {
     XLSX.writeFile(workbook, EXCEL_539_PATH);
     console.log('[INFO] Excel file updated');
     
-    // AUTO-SYNC: Whenever we write to Excel, also sync to MongoDB
-    if (!skipSync && isMongoDBAvailable()) {
-      console.log('[AUTO-SYNC] Triggering automatic sync to MongoDB...');
-      syncExcelToMongoDB(data).then(success => {
-        if (success) {
-          console.log('[AUTO-SYNC] Successfully synced Excel changes to MongoDB');
-        } else {
-          console.log('[AUTO-SYNC] Failed to sync to MongoDB, but Excel saved successfully');
-        }
-      }).catch(error => {
-        console.error('[AUTO-SYNC] Sync error:', error.message);
-      });
-    }
-    
     return true;
   } catch (error) {
     console.error('[ERROR] Writing Excel:', error.message);
@@ -380,7 +230,6 @@ router.get('/historical-results/539', async (req, res) => {
     console.log('[GET] Loading results...');
     let results = [];
     let usesMongoDB = false;
-    let dataSource = 'none';
     
     // Try MongoDB first if available
     if (isMongoDBAvailable()) {
@@ -397,7 +246,6 @@ router.get('/historical-results/539', async (req, res) => {
             numbers: result.numbers || []
           }));
           usesMongoDB = true;
-          dataSource = 'mongodb';
           console.log(`[INFO] Loaded ${results.length} from MongoDB`);
         }
       } catch (dbError) {
@@ -408,22 +256,13 @@ router.get('/historical-results/539', async (req, res) => {
     // Use Excel if MongoDB didn't work or no results
     if (!usesMongoDB || results.length === 0) {
       results = readExcelFile();
-      dataSource = results.length > 0 ? 'excel' : 'none';
       console.log(`[INFO] Using Excel data (${results.length} results)`);
-      
-      // If we got data from Excel and MongoDB is available, sync it
-      if (results.length > 0 && isMongoDBAvailable() && !usesMongoDB) {
-        console.log('[INFO] Found Excel data while MongoDB is available, triggering sync...');
-        syncExcelToMongoDB(results);
-      }
     }
     
     res.json({
       success: true,
       results: results,
-      total: results.length,
-      dataSource: dataSource,
-      mongoAvailable: isMongoDBAvailable()
+      total: results.length
     });
     
   } catch (error) {
@@ -433,8 +272,7 @@ router.get('/historical-results/539', async (req, res) => {
       success: true, 
       results: [],
       total: 0,
-      message: 'No results found',
-      dataSource: 'none'
+      message: 'No results found'
     });
   }
 });
@@ -489,7 +327,6 @@ router.post('/historical-results/539/add', async (req, res) => {
     const formattedDate = formatDateString(drawDate);
     let allResults = [];
     let mongoId = null;
-    let dataSource = 'excel';
     
     // Try MongoDB first if available
     let savedToMongo = false;
@@ -504,7 +341,7 @@ router.post('/historical-results/539/add', async (req, res) => {
         if (existing) {
           return res.status(400).json({
             success: false,
-            error: `Result for ${formattedDate} already exists in database`
+            error: `Result for ${formattedDate} already exists`
           });
         }
         
@@ -523,7 +360,6 @@ router.post('/historical-results/539/add', async (req, res) => {
         const saved = await newResult.save();
         mongoId = saved._id.toString();
         savedToMongo = true;
-        dataSource = 'mongodb';
         console.log('[SUCCESS] Saved to MongoDB');
         
         // Get all results
@@ -538,8 +374,8 @@ router.post('/historical-results/539/add', async (req, res) => {
           numbers: result.numbers
         }));
         
-        // Also update Excel file for backup (with skipSync flag to avoid circular sync)
-        writeExcelFile(allResults, true);
+        // Also update Excel file for backup
+        writeExcelFile(allResults);
         
       } catch (dbError) {
         console.log('[WARNING] MongoDB save failed:', dbError.message);
@@ -559,7 +395,7 @@ router.post('/historical-results/539/add', async (req, res) => {
       if (exists) {
         return res.status(400).json({
           success: false,
-          error: `Result for ${formattedDate} already exists in Excel`
+          error: `Result for ${formattedDate} already exists`
         });
       }
       
@@ -577,7 +413,7 @@ router.post('/historical-results/539/add', async (req, res) => {
         row.id = idx;
       });
       
-      // Save to Excel (this will auto-sync to MongoDB if available)
+      // Save
       if (!writeExcelFile(currentData)) {
         return res.status(500).json({
           success: false,
@@ -586,14 +422,13 @@ router.post('/historical-results/539/add', async (req, res) => {
       }
       
       allResults = currentData;
-      dataSource = 'excel';
-      console.log('[SUCCESS] Saved to Excel (will auto-sync to MongoDB if available)');
+      console.log('[SUCCESS] Saved to Excel');
     }
     
     // Return success
     res.json({
       success: true,
-      message: `Result added successfully to ${dataSource}`,
+      message: 'Result added successfully',
       result: {
         _id: mongoId,
         id: 0,
@@ -601,9 +436,7 @@ router.post('/historical-results/539/add', async (req, res) => {
         numbers: sortedNumbers
       },
       results: allResults,
-      total: allResults.length,
-      dataSource: dataSource,
-      mongoAvailable: isMongoDBAvailable()
+      total: allResults.length
     });
     
   } catch (error) {
@@ -654,7 +487,6 @@ router.put('/historical-results/539/:id', async (req, res) => {
     const sortedNumbers = parsedNumbers.sort((a, b) => a - b);
     let allResults = [];
     let updated = false;
-    let dataSource = 'excel';
 
     // Try MongoDB
     if (isMongoDBAvailable()) {
@@ -663,18 +495,13 @@ router.put('/historical-results/539/:id', async (req, res) => {
           id,
           {
             drawDate: parseDate(drawDate),
-            numbers: sortedNumbers,
-            metadata: {
-              lastUpdatedAt: new Date(),
-              updatedBy: 'admin'
-            }
+            numbers: sortedNumbers
           },
           { new: true }
         );
         
         if (updatedDoc) {
           updated = true;
-          dataSource = 'mongodb';
           const mongoResults = await LotteryResultModel.find({ gameType: '539' })
             .sort({ drawDate: -1 })
             .lean();
@@ -686,8 +513,7 @@ router.put('/historical-results/539/:id', async (req, res) => {
             numbers: result.numbers
           }));
           
-          // Update Excel as backup (with skipSync flag)
-          writeExcelFile(allResults, true);
+          writeExcelFile(allResults);
         }
       } catch (dbError) {
         console.log('[WARNING] MongoDB update failed:', dbError.message);
@@ -713,7 +539,6 @@ router.put('/historical-results/539/:id', async (req, res) => {
         numbers: sortedNumbers
       };
 
-      // Save to Excel (will auto-sync to MongoDB)
       if (!writeExcelFile(currentData)) {
         return res.status(500).json({
           success: false,
@@ -722,16 +547,13 @@ router.put('/historical-results/539/:id', async (req, res) => {
       }
 
       allResults = currentData;
-      dataSource = 'excel';
     }
 
     res.json({
       success: true,
-      message: `Updated in ${dataSource}`,
+      message: 'Updated',
       results: allResults,
-      total: allResults.length,
-      dataSource: dataSource,
-      mongoAvailable: isMongoDBAvailable()
+      total: allResults.length
     });
     
   } catch (error) {
@@ -751,7 +573,6 @@ router.delete('/historical-results/539/:id', async (req, res) => {
 
     let deleted = false;
     let allResults = [];
-    let dataSource = 'excel';
 
     // Try MongoDB
     if (isMongoDBAvailable()) {
@@ -760,7 +581,6 @@ router.delete('/historical-results/539/:id', async (req, res) => {
         
         if (deletedDoc) {
           deleted = true;
-          dataSource = 'mongodb';
           const mongoResults = await LotteryResultModel.find({ gameType: '539' })
             .sort({ drawDate: -1 })
             .lean();
@@ -772,8 +592,7 @@ router.delete('/historical-results/539/:id', async (req, res) => {
             numbers: result.numbers
           }));
           
-          // Update Excel as backup (with skipSync flag)
-          writeExcelFile(allResults, true);
+          writeExcelFile(allResults);
         }
       } catch (dbError) {
         console.log('[WARNING] MongoDB delete failed:', dbError.message);
@@ -798,7 +617,6 @@ router.delete('/historical-results/539/:id', async (req, res) => {
         row.id = idx;
       });
 
-      // Save to Excel (will auto-sync to MongoDB)
       if (!writeExcelFile(currentData)) {
         return res.status(500).json({
           success: false,
@@ -807,16 +625,13 @@ router.delete('/historical-results/539/:id', async (req, res) => {
       }
 
       allResults = currentData;
-      dataSource = 'excel';
     }
 
     res.json({
       success: true,
-      message: `Deleted from ${dataSource}`,
+      message: 'Deleted',
       results: allResults,
-      total: allResults.length,
-      dataSource: dataSource,
-      mongoAvailable: isMongoDBAvailable()
+      total: allResults.length
     });
     
   } catch (error) {
@@ -831,98 +646,21 @@ router.delete('/historical-results/539/:id', async (req, res) => {
 // POST /api/admin/historical-results/539/sync
 router.post('/historical-results/539/sync', async (req, res) => {
   try {
-    console.log('[SYNC] Manual sync requested...');
-    
-    const { direction = 'both' } = req.body; // 'excel-to-mongo', 'mongo-to-excel', 'both'
-    
-    let syncResults = {
-      excelToMongo: false,
-      mongoToExcel: false,
-      message: ''
-    };
-    
-    if (direction === 'excel-to-mongo' || direction === 'both') {
-      const excelData = readExcelFile();
-      if (excelData.length > 0) {
-        syncResults.excelToMongo = await syncExcelToMongoDB(excelData);
-      }
-    }
-    
-    if (direction === 'mongo-to-excel' || direction === 'both') {
-      syncResults.mongoToExcel = await syncMongoDBToExcel();
-    }
-    
-    // Get final results
-    const results = readExcelFile();
-    
-    if (syncResults.excelToMongo || syncResults.mongoToExcel) {
-      syncResults.message = 'Sync completed successfully';
-    } else {
-      syncResults.message = 'Sync not performed (MongoDB not available or no data)';
-    }
+    console.log('[SYNC] Starting...');
+    const excelResults = readExcelFile();
     
     res.json({
       success: true,
-      message: syncResults.message,
-      syncResults: syncResults,
-      results: results,
-      total: results.length,
-      mongoAvailable: isMongoDBAvailable()
+      message: `${excelResults.length} results available`,
+      results: excelResults,
+      total: excelResults.length
     });
     
   } catch (error) {
-    console.error('[ERROR] Manual sync failed:', error.message);
+    console.error('[ERROR] Sync failed:', error.message);
     res.status(500).json({ 
       success: false, 
-      error: 'Sync failed',
-      details: error.message
-    });
-  }
-});
-
-// GET /api/admin/historical-results/539/status
-router.get('/historical-results/539/status', async (req, res) => {
-  try {
-    let mongoCount = 0;
-    let excelCount = 0;
-    let mongoStatus = 'disconnected';
-    
-    // Check MongoDB
-    if (isMongoDBAvailable()) {
-      try {
-        mongoCount = await LotteryResultModel.countDocuments({ gameType: '539' });
-        mongoStatus = 'connected';
-      } catch (error) {
-        mongoStatus = 'error';
-      }
-    }
-    
-    // Check Excel
-    const excelData = readExcelFile();
-    excelCount = excelData.length;
-    
-    res.json({
-      success: true,
-      status: {
-        mongodb: {
-          connected: isMongoDBAvailable(),
-          status: mongoStatus,
-          recordCount: mongoCount
-        },
-        excel: {
-          exists: fs.existsSync(EXCEL_539_PATH),
-          recordCount: excelCount,
-          path: EXCEL_539_PATH
-        },
-        syncRecommended: mongoCount !== excelCount && isMongoDBAvailable()
-      }
-    });
-    
-  } catch (error) {
-    console.error('[ERROR] Status check failed:', error.message);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get status'
+      error: 'Sync failed'
     });
   }
 });
