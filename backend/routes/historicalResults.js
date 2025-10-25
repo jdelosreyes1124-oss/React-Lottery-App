@@ -3,7 +3,7 @@ const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-console.log('📁 Historical Results routes loaded!');
+console.log('🔍 Historical Results routes loaded!');
 
 const router = express.Router();
 
@@ -60,17 +60,32 @@ function readExcelFile() {
     const worksheet = workbook.Sheets[sheetName];
     const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-    return jsonData.map((row, index) => ({
-      id: index,
-      drawDate: excelDateToJSDate(row['Date'] || row['date'] || ''),
-      numbers: [
-        row['Number1'] || row['Number 1'] || row['number1'] || row['number 1'],
-        row['Number2'] || row['Number 2'] || row['number2'] || row['number 2'],
-        row['Number3'] || row['Number 3'] || row['number3'] || row['number 3'],
-        row['Number4'] || row['Number 4'] || row['number4'] || row['number 4'],
-        row['Number5'] || row['Number 5'] || row['number5'] || row['number 5']
-      ].filter(n => n !== undefined && n !== null && n !== '')
-    })).filter(row => row.numbers.length === 5);
+    return jsonData.map((row, index) => {
+      // Try different column name variations
+      const dateValue = row['Date'] || row['date'] || row['DATE'] || '';
+      const numbers = [];
+      
+      // Try different naming patterns for numbers
+      for (let i = 1; i <= 5; i++) {
+        const num = row[`Number ${i}`] || row[`Number${i}`] || 
+                   row[`number ${i}`] || row[`number${i}`] || 
+                   row[`Num${i}`] || row[`num${i}`] || 
+                   row[i.toString()];
+        if (num !== undefined && num !== null && num !== '') {
+          numbers.push(parseInt(num));
+        }
+      }
+      
+      // Only return rows with valid data
+      if (numbers.length === 5 && numbers.every(n => !isNaN(n))) {
+        return {
+          id: index,
+          drawDate: excelDateToJSDate(dateValue),
+          numbers: numbers
+        };
+      }
+      return null;
+    }).filter(row => row !== null);
 
   } catch (error) {
     console.error('Error reading Excel file:', error);
@@ -107,29 +122,43 @@ function writeExcelFile(data) {
 // GET /api/admin/historical-results/539
 router.get('/historical-results/539', (req, res) => {
   try {
+    console.log('📊 Loading 539 historical results...');
     const results = readExcelFile();
+    
+    console.log(`✅ Loaded ${results.length} results from Excel`);
     
     res.json({
       success: true,
       results: results,
-      total: results.length  // Add total count
+      total: results.length
     });
   } catch (error) {
     console.error('Error loading results:', error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
   }
 });
 
 // POST /api/admin/historical-results/539/add
 router.post('/historical-results/539/add', (req, res) => {
   try {
+    console.log('📝 Adding new result:', req.body);
     const { drawDate, numbers } = req.body;
 
     // Validate input
-    if (!drawDate || !numbers || numbers.length !== 5) {
+    if (!drawDate) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid data. Need drawDate and 5 numbers'
+        error: 'Draw date is required'
+      });
+    }
+
+    if (!numbers || !Array.isArray(numbers) || numbers.length !== 5) {
+      return res.status(400).json({
+        success: false,
+        error: 'Exactly 5 numbers are required'
       });
     }
 
@@ -168,7 +197,7 @@ router.post('/historical-results/539/add', (req, res) => {
     const newResult = {
       id: currentData.length,
       drawDate,
-      numbers: parsedNumbers
+      numbers: parsedNumbers.sort((a, b) => a - b) // Sort numbers
     };
 
     // Add to beginning of array (most recent first)
@@ -188,7 +217,7 @@ router.post('/historical-results/539/add', (req, res) => {
         success: true,
         message: 'Result added successfully',
         result: newResult,
-        results: currentData,  // Return all results so frontend can update
+        results: currentData,
         total: currentData.length
       });
     } else {
@@ -199,7 +228,10 @@ router.post('/historical-results/539/add', (req, res) => {
     }
   } catch (error) {
     console.error('Error adding result:', error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
   }
 });
 
@@ -210,8 +242,10 @@ router.put('/historical-results/539/:id', (req, res) => {
     const { drawDate, numbers } = req.body;
     const resultId = parseInt(id);
 
+    console.log(`📝 Updating result ID ${resultId}:`, req.body);
+
     // Validate input
-    if (!drawDate || !numbers || numbers.length !== 5) {
+    if (!drawDate || !numbers || !Array.isArray(numbers) || numbers.length !== 5) {
       return res.status(400).json({
         success: false,
         error: 'Invalid data. Need drawDate and 5 numbers'
@@ -248,7 +282,7 @@ router.put('/historical-results/539/:id', (req, res) => {
     currentData[index] = {
       id: resultId,
       drawDate,
-      numbers: parsedNumbers
+      numbers: parsedNumbers.sort((a, b) => a - b)
     };
 
     if (writeExcelFile(currentData)) {
@@ -269,7 +303,10 @@ router.put('/historical-results/539/:id', (req, res) => {
     }
   } catch (error) {
     console.error('Error updating result:', error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
   }
 });
 
@@ -278,6 +315,8 @@ router.delete('/historical-results/539/:id', (req, res) => {
   try {
     const { id } = req.params;
     const resultId = parseInt(id);
+
+    console.log(`🗑️ Deleting result ID ${resultId}`);
 
     const currentData = readExcelFile();
     const index = currentData.findIndex(r => r.id === resultId);
@@ -303,7 +342,7 @@ router.delete('/historical-results/539/:id', (req, res) => {
       res.json({
         success: true,
         message: 'Result deleted successfully',
-        results: currentData,  // Return updated results
+        results: currentData,
         total: currentData.length
       });
     } else {
@@ -314,13 +353,17 @@ router.delete('/historical-results/539/:id', (req, res) => {
     }
   } catch (error) {
     console.error('Error deleting result:', error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
   }
 });
 
 // POST /api/admin/historical-results/539/sync
 router.post('/historical-results/539/sync', (req, res) => {
   try {
+    console.log('🔄 Syncing from Excel file...');
     const results = readExcelFile();
     
     console.log(`✅ Synced from Excel: ${results.length} results loaded`);
@@ -333,7 +376,10 @@ router.post('/historical-results/539/sync', (req, res) => {
     });
   } catch (error) {
     console.error('Error syncing from Excel:', error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
   }
 });
 
