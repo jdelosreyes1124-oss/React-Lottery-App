@@ -92,7 +92,7 @@ async function getLocalPrediction(gameType, period, extended = false, frequency)
   console.log('Using local algorithm for prediction...');
   
   const gameConfig = {
-    '539': { numbers: extended ? 8 : 5, max: 39, hasBonus: false },
+    '539': { numbers: 8 , max: 39, hasBonus: false },
     'mark6': { numbers: 6, max: 49, hasBonus: true },
     'lotto649': { numbers: 6, max: 49, hasBonus: true }
   };
