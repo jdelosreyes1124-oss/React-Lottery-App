@@ -2311,42 +2311,14 @@ const AdminPanel = ({ onClose }) => {
 
     setIsLoading(true);
     try {
-      const response = await api.addHistoricalResult(selectedGameType, result);
-      
-      // Check if successful and use the returned data
-      if (response && response.success) {
-        setNewResult({ 
-          number1: '', number2: '', number3: '', number4: '', number5: '', number6: '',
-          bonus: '', drawDate: '' 
-        });
-        setShowAddForm(false);
-        
-        // If backend returns updated results, use them directly
-        if (response.results) {
-          setHistoricalResults(prev => ({
-            ...prev,
-            [selectedGameType]: {
-              results: response.results
-            }
-          }));
-          
-          // Update pagination if total is provided
-          if (response.total !== undefined) {
-            setPagination(prev => ({
-              ...prev,
-              total: response.total,
-              totalPages: Math.ceil(response.total / prev.limit)
-            }));
-          }
-          showNotification(`Result added successfully! Total: ${response.total || response.results.length}`, 'success');
-        } else {
-          // Fallback: reload results from backend
-          await loadHistoricalResults(selectedGameType, 1);
-          showNotification('Result added successfully!', 'success');
-        }
-      } else {
-        showNotification(response?.error || 'Failed to add result', 'error');
-      }
+      await api.addHistoricalResult(selectedGameType, result);
+      setNewResult({ 
+        number1: '', number2: '', number3: '', number4: '', number5: '', number6: '',
+        bonus: '', drawDate: '' 
+      });
+      setShowAddForm(false);
+      loadHistoricalResults(selectedGameType, 1);
+      showNotification('Result added successfully', 'success');
     } catch (error) {
       showNotification('Failed to add result: ' + error.message, 'error');
     } finally {
@@ -2360,33 +2332,9 @@ const AdminPanel = ({ onClose }) => {
 
     setIsLoading(true);
     try {
-      const response = await api.deleteHistoricalResult(selectedGameType, resultId);
-      
-      // Use returned data if available
-      if (response && response.success) {
-        if (response.results) {
-          setHistoricalResults(prev => ({
-            ...prev,
-            [selectedGameType]: {
-              results: response.results
-            }
-          }));
-          
-          if (response.total !== undefined) {
-            setPagination(prev => ({
-              ...prev,
-              total: response.total,
-              totalPages: Math.ceil(response.total / prev.limit)
-            }));
-          }
-        } else {
-          // Fallback: reload
-          await loadHistoricalResults(selectedGameType, 1);
-        }
-        showNotification('Result deleted successfully', 'success');
-      } else {
-        showNotification(response?.error || 'Failed to delete', 'error');
-      }
+      await api.deleteHistoricalResult(selectedGameType, resultId);
+      loadHistoricalResults(selectedGameType, 1);
+      showNotification('Result deleted successfully', 'success');
     } catch (error) {
       showNotification('Failed to delete result: ' + error.message, 'error');
     } finally {
@@ -2402,36 +2350,13 @@ const AdminPanel = ({ onClose }) => {
     try {
       const response = await api.syncBackendExcel(selectedGameType);
       
-      if (response && response.success) {
-        // Use returned results if available
-        if (response.results) {
-          setHistoricalResults(prev => ({
-            ...prev,
-            [selectedGameType]: {
-              results: response.results
-            }
-          }));
-          
-          if (response.total !== undefined) {
-            setPagination(prev => ({
-              ...prev,
-              total: response.total,
-              totalPages: Math.ceil(response.total / prev.limit)
-            }));
-          }
-          
-          showNotification(
-            `Sync completed! ${response.total || response.results.length} results loaded`,
-            'success'
-          );
-        } else {
-          // Show import stats if available
-          showNotification(
-            `Sync completed! ${response.imported || 0} imported, ${response.skipped || 0} skipped`,
-            'success'
-          );
-          await loadHistoricalResults(selectedGameType, 1);
-        }
+      if (response.success) {
+        showNotification(
+          `Sync completed! ${response.imported} imported, ${response.skipped} skipped`,
+          'success'
+        );
+        
+        await loadHistoricalResults(selectedGameType, 1);
       } else {
         showNotification('Sync failed: ' + (response.error || 'Unknown error'), 'error');
       }
