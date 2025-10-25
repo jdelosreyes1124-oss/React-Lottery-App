@@ -3,7 +3,7 @@ const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-console.log('🔍 Historical Results routes loaded!');
+console.log('[INFO] Historical Results routes loaded!');
 
 const router = express.Router();
 
@@ -110,7 +110,7 @@ function writeExcelFile(data) {
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Results');
     
     XLSX.writeFile(workbook, EXCEL_539_PATH);
-    console.log('✅ Excel file updated:', EXCEL_539_PATH);
+    console.log('[SUCCESS] Excel file updated:', EXCEL_539_PATH);
     
     return true;
   } catch (error) {
@@ -122,10 +122,10 @@ function writeExcelFile(data) {
 // GET /api/admin/historical-results/539
 router.get('/historical-results/539', (req, res) => {
   try {
-    console.log('📊 Loading 539 historical results...');
+    console.log('[INFO] Loading 539 historical results...');
     const results = readExcelFile();
     
-    console.log(`✅ Loaded ${results.length} results from Excel`);
+    console.log(`[SUCCESS] Loaded ${results.length} results from Excel`);
     
     res.json({
       success: true,
@@ -144,7 +144,7 @@ router.get('/historical-results/539', (req, res) => {
 // POST /api/admin/historical-results/539/add
 router.post('/historical-results/539/add', (req, res) => {
   try {
-    console.log('📝 Adding new result:', req.body);
+    console.log('[INFO] Adding new result:', req.body);
     const { drawDate, numbers } = req.body;
 
     // Validate input
@@ -210,7 +210,7 @@ router.post('/historical-results/539/add', (req, res) => {
 
     // Write to Excel
     if (writeExcelFile(currentData)) {
-      console.log(`✅ Added result: ${drawDate} - ${parsedNumbers.join(', ')}`);
+      console.log(`[SUCCESS] Added result: ${drawDate} - ${parsedNumbers.join(', ')}`);
       
       // Return the updated list of results
       res.json({
@@ -242,7 +242,7 @@ router.put('/historical-results/539/:id', (req, res) => {
     const { drawDate, numbers } = req.body;
     const resultId = parseInt(id);
 
-    console.log(`📝 Updating result ID ${resultId}:`, req.body);
+    console.log(`[INFO] Updating result ID ${resultId}:`, req.body);
 
     // Validate input
     if (!drawDate || !numbers || !Array.isArray(numbers) || numbers.length !== 5) {
@@ -286,7 +286,7 @@ router.put('/historical-results/539/:id', (req, res) => {
     };
 
     if (writeExcelFile(currentData)) {
-      console.log(`✅ Updated result ID: ${resultId}`);
+      console.log(`[SUCCESS] Updated result ID: ${resultId}`);
       
       res.json({
         success: true,
@@ -316,7 +316,7 @@ router.delete('/historical-results/539/:id', (req, res) => {
     const { id } = req.params;
     const resultId = parseInt(id);
 
-    console.log(`🗑️ Deleting result ID ${resultId}`);
+    console.log(`[INFO] Deleting result ID ${resultId}`);
 
     const currentData = readExcelFile();
     const index = currentData.findIndex(r => r.id === resultId);
@@ -337,7 +337,7 @@ router.delete('/historical-results/539/:id', (req, res) => {
     });
 
     if (writeExcelFile(currentData)) {
-      console.log(`✅ Deleted result ID: ${resultId}`);
+      console.log(`[SUCCESS] Deleted result ID: ${resultId}`);
       
       res.json({
         success: true,
@@ -363,10 +363,10 @@ router.delete('/historical-results/539/:id', (req, res) => {
 // POST /api/admin/historical-results/539/sync
 router.post('/historical-results/539/sync', (req, res) => {
   try {
-    console.log('🔄 Syncing from Excel file...');
+    console.log('[INFO] Syncing from Excel file...');
     const results = readExcelFile();
     
-    console.log(`✅ Synced from Excel: ${results.length} results loaded`);
+    console.log(`[SUCCESS] Synced from Excel: ${results.length} results loaded`);
     
     res.json({
       success: true,
