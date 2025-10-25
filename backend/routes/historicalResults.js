@@ -223,15 +223,23 @@ router.get('/historical-results/539', async (req, res) => {
 });
 
 // POST /api/admin/historical-results/539/add
+// Debug version of the POST /api/admin/historical-results/539/add route
+// Replace your existing POST route (around line 217-407) with this version:
+
 router.post('/historical-results/539/add', async (req, res) => {
+  console.log('[DEBUG] ========== ADD ROUTE START ==========');
+  
   try {
-    console.log('[POST] Add request received');
-    console.log('[POST] Body:', JSON.stringify(req.body));
+    console.log('[DEBUG] Request received at:', new Date().toISOString());
+    console.log('[DEBUG] Request body:', JSON.stringify(req.body));
+    console.log('[DEBUG] Request headers:', req.headers['content-type']);
     
     const { drawDate, numbers } = req.body;
     
     // Validate date
+    console.log('[DEBUG] Validating date:', drawDate);
     if (!drawDate) {
+      console.log('[DEBUG] Date validation failed - no date provided');
       return res.status(400).json({
         success: false,
         error: 'Draw date is required'
@@ -239,7 +247,11 @@ router.post('/historical-results/539/add', async (req, res) => {
     }
     
     // Validate numbers
+    console.log('[DEBUG] Validating numbers:', numbers);
     if (!numbers || !Array.isArray(numbers) || numbers.length !== 5) {
+      console.log('[DEBUG] Numbers validation failed');
+      console.log('[DEBUG] - Is array?', Array.isArray(numbers));
+      console.log('[DEBUG] - Length:', numbers ? numbers.length : 'undefined');
       return res.status(400).json({
         success: false,
         error: 'Exactly 5 numbers are required'
@@ -247,11 +259,15 @@ router.post('/historical-results/539/add', async (req, res) => {
     }
     
     // Parse and validate numbers
+    console.log('[DEBUG] Parsing numbers...');
     const parsedNumbers = numbers.map(n => parseInt(n));
+    console.log('[DEBUG] Parsed numbers:', parsedNumbers);
     
     for (let i = 0; i < parsedNumbers.length; i++) {
       const num = parsedNumbers[i];
+      console.log(`[DEBUG] Validating number ${i+1}:`, num);
       if (isNaN(num) || num < 1 || num > 39) {
+        console.log(`[DEBUG] Number ${i+1} validation failed`);
         return res.status(400).json({
           success: false,
           error: `Number ${i+1} must be between 1 and 39`
@@ -260,7 +276,10 @@ router.post('/historical-results/539/add', async (req, res) => {
     }
     
     // Check for duplicates
-    if (new Set(parsedNumbers).size !== 5) {
+    console.log('[DEBUG] Checking for duplicates...');
+    const uniqueNumbers = new Set(parsedNumbers);
+    if (uniqueNumbers.size !== 5) {
+      console.log('[DEBUG] Duplicate numbers found');
       return res.status(400).json({
         success: false,
         error: 'All numbers must be unique'
@@ -268,34 +287,51 @@ router.post('/historical-results/539/add', async (req, res) => {
     }
     
     const sortedNumbers = parsedNumbers.sort((a, b) => a - b);
-    const formattedDate = formatDateString(drawDate);
-    const parsedDateObj = parseDate(drawDate);
+    console.log('[DEBUG] Sorted numbers:', sortedNumbers);
     
-    console.log('[INFO] Date:', formattedDate);
-    console.log('[INFO] Numbers:', sortedNumbers);
+    const formattedDate = formatDateString(drawDate);
+    console.log('[DEBUG] Formatted date:', formattedDate);
+    
+    const parsedDateObj = parseDate(drawDate);
+    console.log('[DEBUG] Parsed date object:', parsedDateObj);
     
     let savedDoc = null;
     let allResults = [];
     
+    // Check MongoDB connection
+    console.log('[DEBUG] Checking MongoDB connection...');
+    console.log('[DEBUG] - Connection state:', mongoose.connection.readyState);
+    console.log('[DEBUG] - Connection host:', mongoose.connection.host);
+    console.log('[DEBUG] - Database name:', mongoose.connection.name);
+    
     // Try to save to MongoDB
     if (mongoose.connection.readyState === 1) {
+      console.log('[DEBUG] MongoDB is connected, attempting save...');
+      
       try {
+        console.log('[DEBUG] Getting LotteryResult model...');
         const LotteryResult = getLotteryResultModel();
+        console.log('[DEBUG] Model retrieved:', LotteryResult ? 'SUCCESS' : 'NULL');
         
         if (LotteryResult) {
           // Check for existing result
+          console.log('[DEBUG] Checking for existing result...');
           const startOfDay = new Date(parsedDateObj);
           startOfDay.setHours(0, 0, 0, 0);
           const endOfDay = new Date(parsedDateObj);
           endOfDay.setHours(23, 59, 59, 999);
+          
+          console.log('[DEBUG] Date range:', startOfDay, 'to', endOfDay);
           
           const existing = await LotteryResult.findOne({ 
             gameType: '539',
             drawDate: { $gte: startOfDay, $lte: endOfDay }
           });
           
+          console.log('[DEBUG] Existing result:', existing ? 'FOUND' : 'NOT FOUND');
+          
           if (existing) {
-            console.log('[WARNING] Date already exists');
+            console.log('[DEBUG] Result already exists for this date');
             return res.status(400).json({
               success: false,
               error: `Result for ${formattedDate} already exists`
@@ -303,6 +339,7 @@ router.post('/historical-results/539/add', async (req, res) => {
           }
           
           // Create new document
+          console.log('[DEBUG] Creating new document...');
           const newDoc = new LotteryResult({
             gameType: '539',
             drawDate: parsedDateObj,
@@ -310,14 +347,20 @@ router.post('/historical-results/539/add', async (req, res) => {
             source: 'manual'
           });
           
+          console.log('[DEBUG] Document created:', newDoc.toObject());
+          
           // Save to MongoDB
+          console.log('[DEBUG] Saving to MongoDB...');
           savedDoc = await newDoc.save();
-          console.log('[SUCCESS] Saved to MongoDB, ID:', savedDoc._id);
+          console.log('[DEBUG] SAVE SUCCESS! ID:', savedDoc._id);
           
           // Get all results
+          console.log('[DEBUG] Fetching all results...');
           const mongoResults = await LotteryResult.find({ gameType: '539' })
             .sort({ drawDate: -1 })
             .lean();
+          
+          console.log('[DEBUG] Found', mongoResults.length, 'total results');
           
           allResults = mongoResults.map((result, index) => ({
             _id: result._id.toString(),
@@ -327,18 +370,27 @@ router.post('/historical-results/539/add', async (req, res) => {
           }));
           
           // Update Excel backup
+          console.log('[DEBUG] Updating Excel backup...');
           writeExcelFile(allResults);
+          console.log('[DEBUG] Excel backup updated');
+        } else {
+          console.log('[DEBUG] LotteryResult model is null');
         }
       } catch (dbError) {
-        console.error('[ERROR] MongoDB save failed:', dbError.message);
+        console.error('[DEBUG] MongoDB ERROR:', dbError.message);
+        console.error('[DEBUG] Error name:', dbError.name);
+        console.error('[DEBUG] Error stack:', dbError.stack);
         // Continue to Excel fallback
       }
+    } else {
+      console.log('[DEBUG] MongoDB not connected, using Excel only');
     }
     
     // Fallback to Excel if MongoDB failed
     if (!savedDoc) {
-      console.log('[INFO] Using Excel storage');
+      console.log('[DEBUG] Using Excel storage fallback...');
       const currentData = readExcelFile();
+      console.log('[DEBUG] Current Excel data count:', currentData.length);
       
       // Check if date exists
       const exists = currentData.some(row => 
@@ -346,6 +398,7 @@ router.post('/historical-results/539/add', async (req, res) => {
       );
       
       if (exists) {
+        console.log('[DEBUG] Date already exists in Excel');
         return res.status(400).json({
           success: false,
           error: `Result for ${formattedDate} already exists`
@@ -366,19 +419,21 @@ router.post('/historical-results/539/add', async (req, res) => {
         row.id = idx;
       });
       
+      console.log('[DEBUG] Saving to Excel...');
       if (!writeExcelFile(currentData)) {
+        console.log('[DEBUG] Excel save FAILED');
         return res.status(500).json({
           success: false,
           error: 'Failed to save data'
         });
       }
       
+      console.log('[DEBUG] Excel save SUCCESS');
       allResults = currentData;
     }
     
-    console.log('[SUCCESS] Result added');
-    
-    res.json({
+    console.log('[DEBUG] Preparing response...');
+    const response = {
       success: true,
       message: 'Result added successfully',
       result: {
@@ -389,14 +444,28 @@ router.post('/historical-results/539/add', async (req, res) => {
       },
       results: allResults,
       total: allResults.length
-    });
+    };
+    
+    console.log('[DEBUG] Sending success response');
+    console.log('[DEBUG] ========== ADD ROUTE END SUCCESS ==========');
+    
+    res.json(response);
     
   } catch (error) {
-    console.error('[ERROR] Add failed:', error.message);
-    console.error('[ERROR] Stack:', error.stack);
+    console.error('[DEBUG] ========== FATAL ERROR ==========');
+    console.error('[DEBUG] Error message:', error.message);
+    console.error('[DEBUG] Error name:', error.name);
+    console.error('[DEBUG] Error stack:', error.stack);
+    console.error('[DEBUG] ========== ADD ROUTE END ERROR ==========');
+    
     res.status(500).json({ 
       success: false, 
-      error: error.message
+      error: error.message,
+      debugInfo: {
+        errorName: error.name,
+        errorMessage: error.message,
+        errorStack: error.stack.split('\n').slice(0, 5)
+      }
     });
   }
 });
