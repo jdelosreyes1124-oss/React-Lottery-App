@@ -204,7 +204,7 @@ async function syncMongoDBWithExcel() {
       });
       
       if (!existing) {
-        const newId = new ObjectId(); 
+        const newId = new ObjectId();
         await collection.insertOne({
           _id: newId,
           gameType: '539',
