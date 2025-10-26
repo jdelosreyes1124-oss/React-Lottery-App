@@ -1,5 +1,5 @@
-// Fixed MongoDB Model Creation and Save Logic
-// This fixes the "document must have an _id before saving" error
+// COMPLETE FIX - Handles MongoDB connection timing issues
+// Replace your entire historicalResults.js with this version
 
 const express = require('express');
 const XLSX = require('xlsx');
@@ -13,79 +13,107 @@ const router = express.Router();
 // Path to the 539 Excel file 
 const EXCEL_539_PATH = path.join(__dirname, '../data/539PAST2025RESULT.xlsx');
 
-// Import mongoose only if available
+// Lazy loading of mongoose and model
 let mongoose = null;
 let LotteryResultModel = null;
 
-try {
-  mongoose = require('mongoose');
-  console.log('[INFO] Mongoose module loaded');
-  
-  // Only try to create model if mongoose is connected
-  if (mongoose.connection && mongoose.connection.readyState === 1) {
-    // FIX: Properly handle existing models
-    try {
-      // Try to get existing model first
-      LotteryResultModel = mongoose.model('LotteryResult');
-      console.log('[INFO] Using existing LotteryResult model');
-    } catch (error) {
-      // Model doesn't exist, create it
-      console.log('[INFO] Creating new LotteryResult model');
-      
-      const lotteryResultSchema = new mongoose.Schema({
-        gameType: { 
-          type: String, 
-          enum: ['539', 'mark6', 'lotto649'], 
-          required: true 
-        },
-        drawDate: {
-          type: Date,
-          required: true
-        },
-        numbers: {
-          type: [Number],
-          required: true,
-          validate: {
-            validator: function(v) {
-              return Array.isArray(v) && v.length > 0;
-            },
-            message: 'Numbers array cannot be empty'
-          }
-        },
-        bonus: {
-          type: Number,
-          default: null
-        },
-        drawNumber: {
-          type: Number,
-          default: null
-        },
-        source: { 
-          type: String, 
-          default: 'manual' 
-        },
-        metadata: {
-          type: mongoose.Schema.Types.Mixed,
-          default: {}
-        }
-      }, {
-        timestamps: true,
-        collection: 'lottery_results'
-      });
-      
-      // Create indexes
-      lotteryResultSchema.index({ gameType: 1, drawDate: -1 });
-      
-      // Register the model
-      LotteryResultModel = mongoose.model('LotteryResult', lotteryResultSchema, 'lottery_results');
-      console.log('[INFO] LotteryResult model created successfully');
-    }
-  } else {
-    console.log('[WARNING] MongoDB not connected - will use Excel file only');
+// Function to get or create the model
+function getLotteryModel() {
+  // If model already exists, return it
+  if (LotteryResultModel) {
+    return LotteryResultModel;
   }
-} catch (error) {
-  console.log('[WARNING] Mongoose not available:', error.message);
-  console.log('[INFO] Will use Excel file for data storage');
+  
+  // Try to load mongoose if not loaded
+  if (!mongoose) {
+    try {
+      mongoose = require('mongoose');
+      console.log('[INFO] Mongoose module loaded');
+    } catch (error) {
+      console.log('[WARNING] Mongoose not available:', error.message);
+      return null;
+    }
+  }
+  
+  // Check if mongoose is connected
+  if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+    console.log('[WARNING] MongoDB not connected yet');
+    return null;
+  }
+  
+  // Try to get or create the model
+  try {
+    // Check if model already exists
+    LotteryResultModel = mongoose.model('LotteryResult');
+    console.log('[INFO] Using existing LotteryResult model');
+  } catch (error) {
+    // Model doesn't exist, create it
+    console.log('[INFO] Creating new LotteryResult model');
+    
+    const lotteryResultSchema = new mongoose.Schema({
+      gameType: { 
+        type: String, 
+        enum: ['539', 'mark6', 'lotto649'], 
+        required: true 
+      },
+      drawDate: {
+        type: Date,
+        required: true
+      },
+      numbers: {
+        type: [Number],
+        required: true,
+        validate: {
+          validator: function(v) {
+            return Array.isArray(v) && v.length > 0;
+          },
+          message: 'Numbers array cannot be empty'
+        }
+      },
+      bonus: {
+        type: Number,
+        default: null
+      },
+      drawNumber: {
+        type: Number,
+        default: null
+      },
+      source: { 
+        type: String, 
+        default: 'manual' 
+      },
+      metadata: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+      }
+    }, {
+      timestamps: true,
+      collection: 'lottery_results',
+      strict: true
+    });
+    
+    // Create indexes
+    lotteryResultSchema.index({ gameType: 1, drawDate: -1 });
+    
+    // Register the model
+    LotteryResultModel = mongoose.model('LotteryResult', lotteryResultSchema);
+    console.log('[INFO] LotteryResult model created successfully');
+  }
+  
+  return LotteryResultModel;
+}
+
+// Helper: Check if MongoDB is available
+function isMongoDBAvailable() {
+  // Try to get the model (this will create it if needed and possible)
+  const model = getLotteryModel();
+  const available = model !== null;
+  
+  if (mongoose?.connection) {
+    console.log(`[DEBUG] MongoDB Check - Connected: ${mongoose.connection.readyState === 1}, Model: ${!!model}`);
+  }
+  
+  return available;
 }
 
 // Helper: Format date consistently
@@ -134,20 +162,6 @@ function parseDate(dateString) {
     console.error('[ERROR] Date parsing failed:', error);
     return new Date();
   }
-}
-
-// Helper: Check if MongoDB is available and connected
-function isMongoDBAvailable() {
-  const available = mongoose && 
-         mongoose.connection && 
-         mongoose.connection.readyState === 1 && 
-         LotteryResultModel !== null;
-  
-  if (mongoose?.connection) {
-    console.log(`[DEBUG] MongoDB Status - ReadyState: ${mongoose.connection.readyState}, Model Available: ${!!LotteryResultModel}`);
-  }
-  
-  return available;
 }
 
 // Helper: Read Excel file
@@ -246,7 +260,8 @@ router.get('/historical-results/539', async (req, res) => {
     // Try MongoDB first if available
     if (isMongoDBAvailable()) {
       try {
-        const mongoResults = await LotteryResultModel.find({ gameType: '539' })
+        const Model = getLotteryModel();
+        const mongoResults = await Model.find({ gameType: '539' })
           .sort({ drawDate: -1 })
           .lean()
           .exec();
@@ -289,7 +304,7 @@ router.get('/historical-results/539', async (req, res) => {
   }
 });
 
-// POST /api/admin/historical-results/539/add - FIXED VERSION
+// POST /api/admin/historical-results/539/add - COMPLETELY FIXED
 router.post('/historical-results/539/add', async (req, res) => {
   console.log('[POST] Add request received');
   console.log('[INFO] Request body:', JSON.stringify(req.body, null, 2));
@@ -355,53 +370,62 @@ router.post('/historical-results/539/add', async (req, res) => {
       console.log('[INFO] MongoDB is available, attempting to save...');
       
       try {
+        const Model = getLotteryModel();
+        
+        if (!Model) {
+          throw new Error('Model not available');
+        }
+        
         // Check for existing record
         const startOfDay = new Date(parsedDate);
         startOfDay.setHours(0, 0, 0, 0);
         const endOfDay = new Date(parsedDate);
         endOfDay.setHours(23, 59, 59, 999);
         
-        const existing = await LotteryResultModel.findOne({
+        const existing = await Model.findOne({
           gameType: '539',
           drawDate: {
             $gte: startOfDay,
             $lte: endOfDay
           }
-        }).exec();
+        }).lean().exec();
         
         if (existing) {
-          console.log('[INFO] Record already exists in MongoDB for date:', formattedDate);
+          console.log('[INFO] Record already exists for date:', formattedDate);
           return res.status(400).json({
             success: false,
-            error: `Result for ${formattedDate} already exists in database`
+            error: `Result for ${formattedDate} already exists`
           });
         }
         
-        // FIX: Create new document using constructor instead of create()
-        const newResult = new LotteryResultModel({
+        // Create new document - CRITICAL FIX
+        // Create a plain object first
+        const docData = {
           gameType: '539',
           drawDate: parsedDate,
           numbers: sortedNumbers,
           source: 'admin',
           metadata: {
             addedBy: 'admin',
-            addedAt: new Date(),
-            originalDateFormat: drawDate
+            addedAt: new Date()
           }
-        });
+        };
         
-        console.log('[INFO] Created new document, attempting to save...');
+        // Create new instance - DO NOT reuse any existing instance
+        const newDoc = new Model(docData);
         
-        // FIX: Use save() method properly
-        const saved = await newResult.save();
+        console.log('[INFO] Document instance created, saving...');
         
-        if (saved && saved._id) {
-          mongoId = saved._id.toString();
+        // Save the document
+        const savedDoc = await newDoc.save();
+        
+        if (savedDoc && savedDoc._id) {
+          mongoId = savedDoc._id.toString();
           savedToMongo = true;
           console.log('[SUCCESS] Saved to MongoDB with ID:', mongoId);
           
-          // Get all results from MongoDB
-          const mongoResults = await LotteryResultModel.find({ gameType: '539' })
+          // Get all results
+          const mongoResults = await Model.find({ gameType: '539' })
             .sort({ drawDate: -1 })
             .lean()
             .exec();
@@ -413,31 +437,28 @@ router.post('/historical-results/539/add', async (req, res) => {
             numbers: result.numbers
           }));
           
-          console.log('[INFO] Retrieved all results from MongoDB:', allResults.length);
+          console.log('[INFO] Retrieved all results:', allResults.length);
           
-          // Also update Excel file for backup
+          // Update Excel backup
           writeExcelFile(allResults);
         }
         
       } catch (dbError) {
-        console.error('[ERROR] MongoDB operation failed:', dbError);
-        console.error('[ERROR] Error name:', dbError.name);
-        console.error('[ERROR] Error message:', dbError.message);
-        console.error('[ERROR] Stack:', dbError.stack);
+        console.error('[ERROR] MongoDB save failed:', dbError.message);
+        console.error('[ERROR] Full error:', dbError);
         savedToMongo = false;
-        // Continue to Excel fallback
       }
     } else {
-      console.log('[INFO] MongoDB not available, using Excel storage');
+      console.log('[INFO] MongoDB not available, using Excel');
     }
     
-    // If MongoDB failed or not available, use Excel
+    // Fallback to Excel if MongoDB failed
     if (!savedToMongo) {
-      console.log('[INFO] Falling back to Excel storage...');
+      console.log('[INFO] Using Excel storage...');
       
       const currentData = readExcelFile();
       
-      // Check for existing in Excel
+      // Check for existing
       const exists = currentData.some(row => {
         const rowDate = formatDateString(row.drawDate);
         return rowDate === formattedDate;
@@ -446,7 +467,7 @@ router.post('/historical-results/539/add', async (req, res) => {
       if (exists) {
         return res.status(400).json({
           success: false,
-          error: `Result for ${formattedDate} already exists in Excel`
+          error: `Result for ${formattedDate} already exists`
         });
       }
       
@@ -464,22 +485,22 @@ router.post('/historical-results/539/add', async (req, res) => {
         row.id = idx;
       });
       
-      // Save to Excel
+      // Save
       if (!writeExcelFile(currentData)) {
         return res.status(500).json({
           success: false,
-          error: 'Failed to save data to Excel'
+          error: 'Failed to save data'
         });
       }
       
       allResults = currentData;
-      console.log('[SUCCESS] Saved to Excel, total records:', allResults.length);
+      console.log('[SUCCESS] Saved to Excel');
     }
     
-    // Return success response
-    const response = {
+    // Return success
+    res.json({
       success: true,
-      message: `Result added successfully`,
+      message: 'Result added successfully',
       result: {
         _id: mongoId,
         id: 0,
@@ -488,22 +509,16 @@ router.post('/historical-results/539/add', async (req, res) => {
       },
       results: allResults,
       total: allResults.length
-    };
-    
-    console.log('[SUCCESS] Sending response');
-    res.json(response);
+    });
     
   } catch (error) {
-    console.error('[CRITICAL ERROR] Unexpected error in add route:', error);
-    console.error('[CRITICAL ERROR] Error name:', error.name);
-    console.error('[CRITICAL ERROR] Error message:', error.message);
-    console.error('[CRITICAL ERROR] Stack trace:', error.stack);
+    console.error('[CRITICAL ERROR] Add failed:', error.message);
+    console.error('[CRITICAL ERROR] Stack:', error.stack);
     
     res.status(500).json({ 
       success: false, 
-      error: 'Internal server error',
-      message: error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      error: 'Server error',
+      message: error.message
     });
   }
 });
@@ -547,7 +562,8 @@ router.put('/historical-results/539/:id', async (req, res) => {
     // Try MongoDB
     if (isMongoDBAvailable()) {
       try {
-        const updatedDoc = await LotteryResultModel.findByIdAndUpdate(
+        const Model = getLotteryModel();
+        const updatedDoc = await Model.findByIdAndUpdate(
           id,
           {
             drawDate: parseDate(drawDate),
@@ -558,7 +574,7 @@ router.put('/historical-results/539/:id', async (req, res) => {
         
         if (updatedDoc) {
           updated = true;
-          const mongoResults = await LotteryResultModel.find({ gameType: '539' })
+          const mongoResults = await Model.find({ gameType: '539' })
             .sort({ drawDate: -1 })
             .lean()
             .exec();
@@ -634,11 +650,12 @@ router.delete('/historical-results/539/:id', async (req, res) => {
     // Try MongoDB
     if (isMongoDBAvailable()) {
       try {
-        const deletedDoc = await LotteryResultModel.findByIdAndDelete(id).exec();
+        const Model = getLotteryModel();
+        const deletedDoc = await Model.findByIdAndDelete(id).exec();
         
         if (deletedDoc) {
           deleted = true;
-          const mongoResults = await LotteryResultModel.find({ gameType: '539' })
+          const mongoResults = await Model.find({ gameType: '539' })
             .sort({ drawDate: -1 })
             .lean()
             .exec();
