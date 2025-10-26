@@ -1,10 +1,9 @@
-// BULLETPROOF FIX - Uses Mongoose.create() to avoid _id issues
-// This approach bypasses the document instance problem entirely
-
 const express = require('express');
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
+const mongoose = require('mongoose');
+const { ObjectId } = require('mongoose').Types;
 
 console.log('[INFO] Historical Results routes loaded!');
 
@@ -12,65 +11,6 @@ const router = express.Router();
 
 // Path to the 539 Excel file 
 const EXCEL_539_PATH = path.join(__dirname, '../data/539PAST2025RESULT.xlsx');
-
-// Import and setup MongoDB connection
-const mongoose = require('mongoose');
-
-// Define the schema directly here to ensure consistency
-const lotteryResultSchema = new mongoose.Schema({
-  gameType: { 
-    type: String, 
-    enum: ['539', 'mark6', 'lotto649'], 
-    required: true 
-  },
-  drawDate: {
-    type: Date,
-    required: true
-  },
-  numbers: {
-    type: [Number],
-    required: true,
-    validate: {
-      validator: function(v) {
-        return Array.isArray(v) && v.length > 0;
-      },
-      message: 'Numbers array cannot be empty'
-    }
-  },
-  bonus: {
-    type: Number,
-    default: null
-  },
-  drawNumber: {
-    type: Number,
-    default: null
-  },
-  source: { 
-    type: String, 
-    default: 'manual' 
-  },
-  metadata: {
-    type: mongoose.Schema.Types.Mixed,
-    default: {}
-  }
-}, {
-  timestamps: true,
-  collection: 'lottery_results'
-});
-
-// Add index
-lotteryResultSchema.index({ gameType: 1, drawDate: -1 });
-
-// Get or create model - using a safer approach
-function getLotteryModel() {
-  try {
-    // Try to get existing model
-    return mongoose.model('LotteryResult');
-  } catch {
-    // Create new model if it doesn't exist
-    return mongoose.model('LotteryResult', lotteryResultSchema);
-  }
-}
 
 // Helper: Check if MongoDB is available
 function isMongoDBAvailable() {
@@ -223,11 +163,10 @@ router.get('/historical-results/539', async (req, res) => {
     // Try MongoDB first if available
     if (isMongoDBAvailable()) {
       try {
-        const LotteryResult = getLotteryModel();
-        const mongoResults = await LotteryResult.find({ gameType: '539' })
+        const collection = mongoose.connection.db.collection('lottery_results');
+        const mongoResults = await collection.find({ gameType: '539' })
           .sort({ drawDate: -1 })
-          .lean()
-          .exec();
+          .toArray();
         
         if (mongoResults && mongoResults.length > 0) {
           results = mongoResults.map((result, index) => ({
@@ -267,7 +206,7 @@ router.get('/historical-results/539', async (req, res) => {
   }
 });
 
-// POST /api/admin/historical-results/539/add - USING CREATE() METHOD
+// POST /api/admin/historical-results/539/add - DIRECT MONGODB APPROACH
 router.post('/historical-results/539/add', async (req, res) => {
   console.log('[POST] Add request received');
   console.log('[INFO] Request body:', JSON.stringify(req.body, null, 2));
@@ -333,7 +272,8 @@ router.post('/historical-results/539/add', async (req, res) => {
       console.log('[INFO] MongoDB is available, attempting to save...');
       
       try {
-        const LotteryResult = getLotteryModel();
+        // Get the collection directly
+        const collection = mongoose.connection.db.collection('lottery_results');
         
         // Check for existing record
         const startOfDay = new Date(parsedDate);
@@ -341,13 +281,13 @@ router.post('/historical-results/539/add', async (req, res) => {
         const endOfDay = new Date(parsedDate);
         endOfDay.setHours(23, 59, 59, 999);
         
-        const existing = await LotteryResult.findOne({
+        const existing = await collection.findOne({
           gameType: '539',
           drawDate: {
             $gte: startOfDay,
             $lte: endOfDay
           }
-        }).lean().exec();
+        });
         
         if (existing) {
           console.log('[INFO] Record already exists for date:', formattedDate);
@@ -357,8 +297,10 @@ router.post('/historical-results/539/add', async (req, res) => {
           });
         }
         
-        // BULLETPROOF FIX: Use create() instead of new Model() + save()
+        // Create document with explicit _id
+        const newId = new ObjectId();
         const documentData = {
+          _id: newId,
           gameType: '539',
           drawDate: parsedDate,
           numbers: sortedNumbers,
@@ -366,24 +308,25 @@ router.post('/historical-results/539/add', async (req, res) => {
           metadata: {
             addedBy: 'admin',
             addedAt: new Date()
-          }
+          },
+          createdAt: new Date(),
+          updatedAt: new Date()
         };
         
-        console.log('[INFO] Creating document using Model.create()...');
+        console.log('[INFO] Inserting document directly into MongoDB...');
         
-        // This is the KEY FIX - using create() avoids the _id issue entirely
-        const savedDoc = await LotteryResult.create(documentData);
+        // Insert directly using MongoDB driver
+        const insertResult = await collection.insertOne(documentData);
         
-        if (savedDoc && savedDoc._id) {
-          mongoId = savedDoc._id.toString();
+        if (insertResult.acknowledged && insertResult.insertedId) {
+          mongoId = insertResult.insertedId.toString();
           savedToMongo = true;
-          console.log('[SUCCESS] Document created with ID:', mongoId);
+          console.log('[SUCCESS] Document inserted with ID:', mongoId);
           
           // Get all results
-          const mongoResults = await LotteryResult.find({ gameType: '539' })
+          const mongoResults = await collection.find({ gameType: '539' })
             .sort({ drawDate: -1 })
-            .lean()
-            .exec();
+            .toArray();
           
           allResults = mongoResults.map((result, index) => ({
             _id: result._id.toString(),
@@ -534,22 +477,24 @@ router.put('/historical-results/539/:id', async (req, res) => {
     // Try MongoDB
     if (isMongoDBAvailable()) {
       try {
-        const LotteryResult = getLotteryModel();
-        const updatedDoc = await LotteryResult.findByIdAndUpdate(
-          id,
-          {
-            drawDate: parseDate(drawDate),
-            numbers: sortedNumbers
+        const collection = mongoose.connection.db.collection('lottery_results');
+        const updateResult = await collection.findOneAndUpdate(
+          { _id: new ObjectId(id) },
+          { 
+            $set: {
+              drawDate: parseDate(drawDate),
+              numbers: sortedNumbers,
+              updatedAt: new Date()
+            }
           },
-          { new: true }
-        ).exec();
+          { returnDocument: 'after' }
+        );
         
-        if (updatedDoc) {
+        if (updateResult.value) {
           updated = true;
-          const mongoResults = await LotteryResult.find({ gameType: '539' })
+          const mongoResults = await collection.find({ gameType: '539' })
             .sort({ drawDate: -1 })
-            .lean()
-            .exec();
+            .toArray();
           
           allResults = mongoResults.map((result, index) => ({
             _id: result._id.toString(),
@@ -622,15 +567,14 @@ router.delete('/historical-results/539/:id', async (req, res) => {
     // Try MongoDB
     if (isMongoDBAvailable()) {
       try {
-        const LotteryResult = getLotteryModel();
-        const deletedDoc = await LotteryResult.findByIdAndDelete(id).exec();
+        const collection = mongoose.connection.db.collection('lottery_results');
+        const deleteResult = await collection.deleteOne({ _id: new ObjectId(id) });
         
-        if (deletedDoc) {
+        if (deleteResult.deletedCount > 0) {
           deleted = true;
-          const mongoResults = await LotteryResult.find({ gameType: '539' })
+          const mongoResults = await collection.find({ gameType: '539' })
             .sort({ drawDate: -1 })
-            .lean()
-            .exec();
+            .toArray();
           
           allResults = mongoResults.map((result, index) => ({
             _id: result._id.toString(),
