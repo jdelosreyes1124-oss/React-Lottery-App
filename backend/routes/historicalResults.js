@@ -478,6 +478,174 @@ router.post('/historical-results/539/add', async (req, res) => {
   }
 });
 
+// DELETE /api/admin/historical-results/539/:id - FIXED VERSION
+router.delete('/historical-results/539/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`[DELETE] Delete request for ID: ${id}`);
+
+    // Read current Excel data
+    const currentData = readExcelFile();
+    
+    if (!currentData || currentData.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No data found'
+      });
+    }
+
+    let deleted = false;
+    let itemToDelete = null;
+
+    // Handle both MongoDB ObjectId and numeric index
+    if (id.match(/^[0-9a-fA-F]{24}$/)) {
+      // MongoDB ObjectId format - try MongoDB first
+      if (isMongoDBAvailable()) {
+        try {
+          const collection = mongoose.connection.db.collection('lottery_results');
+          
+          // Find the document first
+          const doc = await collection.findOne({ _id: new ObjectId(id) });
+          
+          if (doc) {
+            // Delete from MongoDB
+            const deleteResult = await collection.deleteOne({ _id: new ObjectId(id) });
+            
+            if (deleteResult.deletedCount > 0) {
+              deleted = true;
+              itemToDelete = doc;
+              console.log('[INFO] Deleted from MongoDB');
+              
+              // Also remove from Excel to keep in sync
+              const excelIndex = currentData.findIndex(row => {
+                const rowDate = formatDateString(row.drawDate);
+                const docDate = formatDateString(doc.drawDate);
+                return rowDate === docDate;
+              });
+              
+              if (excelIndex !== -1) {
+                currentData.splice(excelIndex, 1);
+                console.log('[INFO] Also removed from Excel at index:', excelIndex);
+              }
+            }
+          }
+        } catch (dbError) {
+          console.log('[WARNING] MongoDB delete failed:', dbError.message);
+        }
+      }
+    }
+    
+    // If not deleted from MongoDB, try Excel by index
+    if (!deleted) {
+      const index = parseInt(id);
+      
+      if (isNaN(index) || index < 0 || index >= currentData.length) {
+        return res.status(404).json({
+          success: false,
+          error: 'Invalid ID or index'
+        });
+      }
+      
+      // Remove from Excel
+      itemToDelete = currentData[index];
+      currentData.splice(index, 1);
+      deleted = true;
+      console.log('[INFO] Deleted from Excel at index:', index);
+      
+      // Try to also delete from MongoDB if available
+      if (isMongoDBAvailable() && itemToDelete) {
+        try {
+          const collection = mongoose.connection.db.collection('lottery_results');
+          const deleteDate = parseDate(itemToDelete.drawDate);
+          const startOfDay = new Date(deleteDate);
+          startOfDay.setHours(0, 0, 0, 0);
+          const endOfDay = new Date(deleteDate);
+          endOfDay.setHours(23, 59, 59, 999);
+          
+          await collection.deleteOne({
+            gameType: '539',
+            drawDate: {
+              $gte: startOfDay,
+              $lte: endOfDay
+            }
+          });
+          console.log('[INFO] Also deleted from MongoDB');
+        } catch (err) {
+          console.log('[WARNING] Could not delete from MongoDB:', err.message);
+        }
+      }
+    }
+    
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        error: 'Result not found'
+      });
+    }
+    
+    // Re-index the remaining data
+    currentData.forEach((row, idx) => {
+      row.id = idx;
+    });
+    
+    // Save updated Excel file
+    if (!writeExcelFile(currentData)) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to save changes'
+      });
+    }
+    
+    console.log('[SUCCESS] Delete completed, data updated');
+    
+    // Get fresh data for response
+    let allResults = [];
+    
+    // Try to get from MongoDB first
+    if (isMongoDBAvailable()) {
+      try {
+        const collection = mongoose.connection.db.collection('lottery_results');
+        const mongoResults = await collection.find({ gameType: '539' })
+          .sort({ drawDate: -1 })
+          .toArray();
+        
+        if (mongoResults.length > 0) {
+          allResults = mongoResults.map((result, index) => ({
+            _id: result._id.toString(),
+            id: index,
+            drawDate: formatDateString(result.drawDate),
+            numbers: result.numbers
+          }));
+        }
+      } catch (err) {
+        console.log('[WARNING] Could not fetch from MongoDB:', err.message);
+      }
+    }
+    
+    // If no MongoDB results, use Excel
+    if (allResults.length === 0) {
+      allResults = currentData;
+    }
+    
+    res.json({
+      success: true,
+      message: 'Result deleted successfully',
+      deletedItem: itemToDelete,
+      results: allResults,
+      total: allResults.length
+    });
+    
+  } catch (error) {
+    console.error('[ERROR] Delete failed:', error.message);
+    console.error('[ERROR] Stack:', error.stack);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to delete result',
+      message: error.message
+    });
+  }
+});
+
 // POST /api/admin/historical-results/539/sync - Manual sync from Excel to MongoDB
 router.post('/historical-results/539/sync', async (req, res) => {
   try {
@@ -501,102 +669,6 @@ router.post('/historical-results/539/sync', async (req, res) => {
       success: false, 
       error: 'Sync failed',
       message: error.message
-    });
-  }
-});
-
-// DELETE /api/admin/historical-results/539/:id
-router.delete('/historical-results/539/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    console.log(`[DELETE] Delete ID ${id}`);
-
-    let deleted = false;
-    let allResults = [];
-
-    // Try MongoDB first
-    if (isMongoDBAvailable()) {
-      try {
-        const collection = mongoose.connection.db.collection('lottery_results');
-        
-        // Try to delete from MongoDB
-        if (id.match(/^[0-9a-fA-F]{24}$/)) {
-          const deleteResult = await collection.deleteOne({ _id: new ObjectId(id) });
-          if (deleteResult.deletedCount > 0) {
-            deleted = true;
-            console.log('[INFO] Deleted from MongoDB');
-          }
-        }
-        
-        // Get updated results from MongoDB
-        if (deleted) {
-          const mongoResults = await collection.find({ gameType: '539' })
-            .sort({ drawDate: -1 })
-            .toArray();
-          
-          allResults = mongoResults.map((result, index) => ({
-            _id: result._id.toString(),
-            id: index,
-            drawDate: formatDateString(result.drawDate),
-            numbers: result.numbers
-          }));
-          
-          // Update Excel to match MongoDB
-          writeExcelFile(allResults);
-        }
-      } catch (dbError) {
-        console.log('[WARNING] MongoDB delete failed:', dbError.message);
-      }
-    }
-
-    // If not deleted from MongoDB, try Excel
-    if (!deleted) {
-      const currentData = readExcelFile();
-      const resultId = parseInt(id);
-      const index = currentData.findIndex(r => r.id === resultId);
-      
-      if (index === -1) {
-        return res.status(404).json({
-          success: false,
-          error: 'Result not found'
-        });
-      }
-
-      currentData.splice(index, 1);
-      currentData.forEach((row, idx) => {
-        row.id = idx;
-      });
-
-      if (!writeExcelFile(currentData)) {
-        return res.status(500).json({
-          success: false,
-          error: 'Failed to delete'
-        });
-      }
-
-      allResults = currentData;
-      deleted = true;
-    }
-
-    if (deleted) {
-      res.json({
-        success: true,
-        message: 'Result deleted successfully',
-        results: allResults,
-        total: allResults.length
-      });
-    } else {
-      res.status(404).json({
-        success: false,
-        error: 'Result not found'
-      });
-    }
-    
-  } catch (error) {
-    console.error('[ERROR] Delete failed:', error.message);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Delete failed'
     });
   }
 });
@@ -640,6 +712,84 @@ router.get('/historical-results/539/status', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to get status'
+    });
+  }
+});
+
+// PUT /api/admin/historical-results/539/:id - Update a result
+router.put('/historical-results/539/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { drawDate, numbers } = req.body;
+    
+    console.log(`[PUT] Update request for ID: ${id}`);
+    
+    // Validate input
+    if (!drawDate || !numbers || !Array.isArray(numbers) || numbers.length !== 5) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid input data'
+      });
+    }
+    
+    const parsedNumbers = numbers.map(n => parseInt(n));
+    
+    if (parsedNumbers.some(n => isNaN(n) || n < 1 || n > 39)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Numbers must be between 1 and 39'
+      });
+    }
+    
+    if (new Set(parsedNumbers).size !== 5) {
+      return res.status(400).json({
+        success: false,
+        error: 'All numbers must be unique'
+      });
+    }
+    
+    const sortedNumbers = parsedNumbers.sort((a, b) => a - b);
+    const formattedDate = formatDateString(parseDate(drawDate));
+    
+    // Read current data
+    const currentData = readExcelFile();
+    
+    // Find and update
+    const index = parseInt(id);
+    if (isNaN(index) || index < 0 || index >= currentData.length) {
+      return res.status(404).json({
+        success: false,
+        error: 'Result not found'
+      });
+    }
+    
+    currentData[index] = {
+      id: index,
+      drawDate: formattedDate,
+      numbers: sortedNumbers
+    };
+    
+    // Save to Excel
+    if (!writeExcelFile(currentData)) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to save changes'
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Result updated successfully',
+      results: currentData,
+      total: currentData.length
+    });
+    
+  } catch (error) {
+    console.error('[ERROR] Update failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update result',
+      message: error.message
     });
   }
 });
