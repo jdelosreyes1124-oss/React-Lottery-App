@@ -50,10 +50,10 @@ const upload = multer({
 });
 
 // ============================================
-// AUTHENTICATION MIDDLEWARE
+// MIDDLEWARE
 // ============================================
 
-// Check if user is authenticated
+// Authentication middleware
 const requireAuth = (req, res, next) => {
   console.log('Auth check:', {
     hasSession: !!req.session,
@@ -61,227 +61,172 @@ const requireAuth = (req, res, next) => {
     hasUser: !!req.session?.user,
     sessionId: req.sessionID
   });
-
-  // Check both userId and user object for compatibility
-  if (!req.session || (!req.session.userId && !req.session.user)) {
+  
+  if (!req.session?.userId && !req.session?.user) {
     return res.status(401).json({ 
       success: false, 
-      error: 'Not authenticated',
+      error: 'Authentication required',
       message: 'Please log in to access this resource'
     });
   }
   next();
 };
 
-// Check if user has admin role
-const requireAdmin = async (req, res, next) => {
-  try {
-    // First check if authenticated
-    if (!req.session || (!req.session.userId && !req.session.user)) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Not authenticated' 
-      });
-    }
-
-    // Get user ID from session (support both formats)
-    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
-    
-    if (!userId) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Invalid session' 
-      });
-    }
-
-    // If user object is already in session and has role, use it
-    if (req.session.user && req.session.user.role) {
-      if (req.session.user.role !== 'admin') {
-        return res.status(403).json({ 
-          success: false, 
-          error: 'Admin access required' 
-        });
-      }
-      return next();
-    }
-
-    // Otherwise fetch from database
-    const user = await db.User.findById(userId);
-    
-    if (!user) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'User not found' 
-      });
-    }
-
-    if (user.role !== 'admin') {
-      return res.status(403).json({ 
-        success: false, 
-        error: 'Admin access required',
-        message: 'You do not have permission to access this resource'
-      });
-    }
-    
-    // Store user in request for later use
-    req.user = user;
-    next();
-  } catch (error) {
-    console.error('Admin middleware error:', error);
-    res.status(500).json({ 
+// Admin role middleware
+const requireAdmin = (req, res, next) => {
+  const userRole = req.session?.user?.role;
+  
+  if (userRole !== 'admin') {
+    return res.status(403).json({ 
       success: false, 
-      error: 'Authorization check failed',
-      message: error.message 
+      error: 'Admin access required',
+      message: 'You do not have permission to access this resource'
     });
   }
+  next();
 };
 
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
-function normalizeDate(date) {
-  if (!date) return null;
+
+// Parse Excel file and extract lottery data
+function parseExcelFile(filePath, gameType) {
   try {
-    if (typeof date === 'number') {
-      const d = new Date((date - 25569) * 86400 * 1000);
-      return d.toISOString().split('T')[0];
-    }
-    const d = new Date(date);
-    if (isNaN(d.getTime())) return null;
-    return d.toISOString().split('T')[0];
-  } catch (e) {
-    return null;
-  }
-}
-
-function identifyGameType(sheetName, data) {
-  const name = sheetName.toLowerCase().trim();
-  
-  if (name.includes('539') || (name.includes('daily') && name.includes('cash'))) return '539';
-  if (name.includes('mark') && name.includes('6')) return 'mark6';
-  if (name.includes('lotto') || name.includes('649')) return 'lotto649';
-  
-  if (data && data.length > 0) {
-    const firstRow = data[0];
-    const numberColumns = Object.keys(firstRow).filter(key => {
-      const lowerKey = key.toLowerCase();
-      return (lowerKey.includes('number') || lowerKey.match(/^num/)) && 
-             !lowerKey.includes('bonus');
-    }).length;
-    
-    if (numberColumns === 5) return '539';
-    if (numberColumns === 6) return 'mark6';
-  }
-  
-  return null;
-}
-
-function extractNumbers(row) {
-  const numbers = [];
-  const possibleFormats = [
-    ...Array.from({length: 8}, (_, i) => `Number ${i + 1}`),
-    ...Array.from({length: 8}, (_, i) => `Number${i + 1}`),
-    ...Array.from({length: 8}, (_, i) => `Num ${i + 1}`),
-    ...Array.from({length: 8}, (_, i) => `Num${i + 1}`),
-    ...'ABCDEF'.split('')
-  ];
-  
-  possibleFormats.forEach(colName => {
-    const value = row[colName];
-    if (value !== undefined && value !== null && !isNaN(value)) {
-      numbers.push(parseInt(value));
-    }
-  });
-  
-  return numbers;
-}
-
-// Helper function - Sync from web scraper
-async function syncFromWeb(gameType) {
-  const startTime = Date.now();
-  
-  try {
-    const result = await scheduledScraper.triggerManualScrape(gameType);
-    const duration = Date.now() - startTime;
-    
-    return {
-      source: 'web_scraper',
-      imported: result.added || 0,
-      skipped: result.skipped || 0,
-      scraped: result.scraped || 0,
-      total: result.total || 0,
-      duration: `${(duration / 1000).toFixed(2)}s`,
-      success: result.success,
-      error: result.error
-    };
-  } catch (error) {
-    console.error(`Web sync error for ${gameType}:`, error);
-    return {
-      source: 'web_scraper',
-      imported: 0,
-      skipped: 0,
-      error: error.message,
-      duration: `${((Date.now() - startTime) / 1000).toFixed(2)}s`
-    };
-  }
-}
-
-// Helper function - Sync from Excel
-async function syncFromExcel(gameType) {
-  const startTime = Date.now();
-  
-  try {
-    const excelMap = {
-      '539': '539PAST2025RESULT.xlsx',
-      'mark6': 'MARK6PAST2025RESULT.xlsx',
-      'lotto649': 'LOTTO649PAST2025RESULT.xlsx'
-    };
-    
-    const excelPath = path.join(__dirname, '../data', excelMap[gameType]);
-    
-    if (!fs.existsSync(excelPath)) {
-      return {
-        source: 'excel',
-        imported: 0,
-        skipped: 0,
-        error: 'Excel file not found'
-      };
-    }
-    
-    const workbook = XLSX.readFile(excelPath);
+    const workbook = XLSX.readFile(filePath);
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     const jsonData = XLSX.utils.sheet_to_json(worksheet);
     
-    console.log(`Processing ${jsonData.length} rows from Excel`);
-    
     const results = [];
     
-    for (const row of jsonData) {
-      const numbers = extractNumbers(row);
-      const bonus = row.Bonus || row.bonus || null;
-      const drawDate = normalizeDate(row.Date || row.date || row['Draw Date']);
+    jsonData.forEach((row, index) => {
+      let drawDate, numbers, bonus;
       
+      // Parse based on game type and Excel structure
+      switch(gameType) {
+        case '539':
+          drawDate = row['Date'] || row['開獎日期'];
+          numbers = [];
+          for (let i = 1; i <= 5; i++) {
+            const num = row[`Number ${i}`] || row[`號碼${i}`] || row[`Num${i}`];
+            if (num) numbers.push(parseInt(num));
+          }
+          break;
+          
+        case 'mark6':
+          drawDate = row['Date'] || row['開獎日期'];
+          numbers = [];
+          for (let i = 1; i <= 6; i++) {
+            const num = row[`Number ${i}`] || row[`號碼${i}`] || row[`Num${i}`];
+            if (num) numbers.push(parseInt(num));
+          }
+          bonus = row['Special'] || row['特別號'];
+          break;
+          
+        case 'lotto649':
+          drawDate = row['Date'] || row['開獎日期'];
+          numbers = [];
+          for (let i = 1; i <= 6; i++) {
+            const num = row[`Number ${i}`] || row[`號碼${i}`] || row[`Num${i}`];
+            if (num) numbers.push(parseInt(num));
+          }
+          bonus = row['Special'] || row['特別號'];
+          break;
+      }
+      
+      // Validate and add result
       if (drawDate && numbers.length > 0) {
         results.push({
           gameType,
-          drawDate,
-          numbers: numbers.slice(0, gameType === '539' ? 5 : 6),
-          bonus: gameType !== '539' ? bonus : null,
-          source: 'excel_sync'
+          drawDate: new Date(drawDate),
+          numbers: numbers.sort((a, b) => a - b),
+          bonus: bonus ? parseInt(bonus) : null,
+          source: 'excel_import'
         });
       }
+    });
+    
+    console.log(`Parsed ${results.length} valid results from Excel`);
+    return results;
+    
+  } catch (error) {
+    console.error('Error parsing Excel file:', error);
+    throw error;
+  }
+}
+
+// Bulk insert with duplicate checking
+async function bulkInsertResults(results, gameType) {
+  const inserted = [];
+  const skipped = [];
+  const errors = [];
+  
+  for (const result of results) {
+    try {
+      // Check if result already exists
+      const existing = await db.LotteryResult.findOne({
+        gameType: result.gameType,
+        drawDate: result.drawDate
+      });
+      
+      if (existing) {
+        skipped.push({
+          date: result.drawDate,
+          reason: 'Already exists'
+        });
+        continue;
+      }
+      
+      // Insert new result
+      const newResult = await db.LotteryResult.create(result);
+      inserted.push(newResult);
+      
+    } catch (error) {
+      errors.push({
+        date: result.drawDate,
+        error: error.message
+      });
+    }
+  }
+  
+  return {
+    total: results.length,
+    inserted: inserted.length,
+    skipped: skipped.length,
+    errors: errors.length,
+    details: { inserted, skipped, errors }
+  };
+}
+
+// Sync Excel data with database
+async function syncExcelWithDB(filePath, gameType) {
+  const startTime = Date.now();
+  
+  try {
+    // Parse Excel file
+    const results = parseExcelFile(filePath, gameType);
+    
+    if (!results || results.length === 0) {
+      return {
+        source: 'excel',
+        imported: 0,
+        skipped: 0,
+        error: 'No valid data found in Excel file'
+      };
     }
     
-    const bulkResult = await dbService.bulkUpsertLotteryResults(results);
+    // Bulk insert results
+    const bulkResult = await bulkInsertResults(results, gameType);
+    
     const duration = Date.now() - startTime;
     
     return {
       source: 'excel',
       imported: bulkResult.inserted,
       modified: bulkResult.modified,
-      skipped: jsonData.length - bulkResult.total,
-      total: jsonData.length,
+      skipped: results.length - bulkResult.total,
+      total: results.length,
       duration: `${(duration / 1000).toFixed(2)}s`
     };
   } catch (error) {
@@ -297,10 +242,10 @@ async function syncFromExcel(gameType) {
 }
 
 // ============================================
-// CRITICAL MISSING ROUTE - Historical Results
+// HISTORICAL RESULTS ROUTES - WITH FIX
 // ============================================
 
-// GET /api/admin/historical-results/:gameType - THIS IS THE MISSING ROUTE
+// GET /api/admin/historical-results/:gameType
 router.get('/historical-results/:gameType', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { gameType } = req.params;
@@ -325,7 +270,7 @@ router.get('/historical-results/:gameType', requireAuth, requireAdmin, async (re
     // Fetch results with pagination
     const results = await db.LotteryResult
       .find({ gameType })
-      .sort({ drawDate: -1 }) // Most recent first
+      .sort({ drawDate: -1 })
       .skip(skip)
       .limit(parseInt(limit))
       .lean();
@@ -357,84 +302,23 @@ router.get('/historical-results/:gameType', requireAuth, requireAdmin, async (re
   }
 });
 
+/* ========================================================================
+   COMMENTED OUT - This route conflicts with historicalResults.js
+   The POST route for adding results is handled by historicalResults.js
+   which uses Excel-based storage to avoid MongoDB _id errors
+   ======================================================================== */
+
 // POST /api/admin/historical-results/:gameType/add
-router.post('/historical-results/:gameType/add', requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const { gameType } = req.params;
-    const { drawDate, numbers, bonus } = req.body;
-    
-    console.log('Adding new result:', { gameType, drawDate, numbers, bonus });
-    
-    // Validate game type
-    const validGames = ['539', 'mark6', 'lotto649'];
-    if (!validGames.includes(gameType)) {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Invalid game type',
-        validTypes: validGames 
-      });
-    }
+// router.post('/historical-results/:gameType/add', requireAuth, requireAdmin, async (req, res) => {
+//   // THIS ROUTE IS INTENTIONALLY COMMENTED OUT
+//   // It was causing: MongooseError: document must have an _id before saving
+//   // The working implementation is in routes/historicalResults.js
+//   // That file handles the 539 game with Excel-based storage
+// });
 
-    // Validate required fields
-    if (!drawDate || !numbers || !Array.isArray(numbers)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields',
-        required: ['drawDate', 'numbers (array)']
-      });
-    }
-
-    // Check for duplicate
-    const existing = await db.LotteryResult.findOne({
-      gameType,
-      drawDate: new Date(drawDate)
-    });
-
-    if (existing) {
-      return res.status(409).json({
-        success: false,
-        error: 'Result already exists for this date',
-        existingId: existing._id
-      });
-    }
-
-    // Create new result
-    const newResult = await db.LotteryResult.create({
-      gameType,
-      drawDate: new Date(drawDate),
-      numbers,
-      bonus: bonus || null,
-      source: 'admin_manual',
-      createdAt: new Date()
-    });
-
-    // Log the action
-    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
-    if (userId) {
-      await dbService.logAdminAction(
-        userId,
-        'ADD_HISTORICAL_RESULT',
-        { gameType, drawDate, numbers, bonus },
-        req
-      );
-    }
-
-    console.log('✅ Result added successfully:', newResult._id);
-
-    res.status(201).json({
-      success: true,
-      data: newResult,
-      message: 'Historical result added successfully'
-    });
-  } catch (error) {
-    console.error('Error adding historical result:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Failed to add result',
-      message: error.message 
-    });
-  }
-});
+/* ========================================================================
+   END OF COMMENTED SECTION
+   ======================================================================== */
 
 // DELETE /api/admin/historical-results/:gameType/:resultId
 router.delete('/historical-results/:gameType/:resultId', requireAuth, requireAdmin, async (req, res) => {
@@ -451,18 +335,17 @@ router.delete('/historical-results/:gameType/:resultId', requireAuth, requireAdm
     if (!result) {
       return res.status(404).json({
         success: false,
-        error: 'Result not found',
-        resultId
+        error: 'Result not found'
       });
     }
 
     // Log the action
-    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
+    const userId = req.session.userId || req.session.user?.id;
     if (userId) {
       await dbService.logAdminAction(
         userId,
         'DELETE_HISTORICAL_RESULT',
-        { gameType, resultId, deletedData: result },
+        { gameType, resultId, result },
         req
       );
     }
@@ -472,7 +355,7 @@ router.delete('/historical-results/:gameType/:resultId', requireAuth, requireAdm
     res.json({
       success: true,
       message: 'Result deleted successfully',
-      deletedResult: result
+      data: result
     });
   } catch (error) {
     console.error('Error deleting result:', error);
@@ -484,485 +367,77 @@ router.delete('/historical-results/:gameType/:resultId', requireAuth, requireAdm
   }
 });
 
-// POST /api/admin/historical-results/:gameType/sync - Sync with Excel
-router.post('/historical-results/:gameType/sync', requireAuth, requireAdmin, async (req, res) => {
+// PUT /api/admin/historical-results/:gameType/:resultId
+router.put('/historical-results/:gameType/:resultId', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { gameType } = req.params;
+    const { gameType, resultId } = req.params;
+    const { drawDate, numbers, bonus } = req.body;
     
-    console.log('🔄 Syncing Excel data for:', gameType);
+    console.log('Updating result:', { gameType, resultId });
     
-    const result = await syncFromExcel(gameType);
+    // Validate input
+    if (!drawDate || !numbers || !Array.isArray(numbers)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid input data'
+      });
+    }
+    
+    const result = await db.LotteryResult.findOneAndUpdate(
+      { _id: resultId, gameType },
+      {
+        drawDate: new Date(drawDate),
+        numbers: numbers.sort((a, b) => a - b),
+        bonus: bonus || null,
+        updatedAt: new Date()
+      },
+      { new: true }
+    );
+    
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        error: 'Result not found'
+      });
+    }
     
     // Log the action
-    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
+    const userId = req.session.userId || req.session.user?.id;
     if (userId) {
       await dbService.logAdminAction(
         userId,
-        'SYNC_EXCEL_DATA',
-        { gameType, result },
+        'UPDATE_HISTORICAL_RESULT',
+        { gameType, resultId, newData: { drawDate, numbers, bonus } },
         req
       );
     }
     
+    console.log('✅ Result updated successfully');
+    
     res.json({
-      success: !result.error,
-      ...result
+      success: true,
+      message: 'Result updated successfully',
+      data: result
     });
   } catch (error) {
-    console.error('Sync error:', error);
+    console.error('Error updating result:', error);
     res.status(500).json({ 
       success: false,
-      error: 'Sync failed',
+      error: 'Failed to update result',
       message: error.message 
     });
   }
 });
 
 // ============================================
-// SCRAPER ROUTES (for Auto Update functionality)
+// EXCEL UPLOAD ROUTES
 // ============================================
 
-// GET /api/admin/scraper/preview/:gameType
-router.get('/scraper/preview/:gameType', requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const { gameType } = req.params;
-    const { maxResults = 30 } = req.query;
-    
-    console.log('Scraper preview for:', gameType);
-    
-    // Get latest results from scraper without importing
-    const scraperData = await scheduledScraper.previewScrape(gameType, parseInt(maxResults));
-    
-    res.json({
-      success: true,
-      gameType,
-      data: scraperData,
-      count: scraperData.length,
-      maxResults: parseInt(maxResults)
-    });
-  } catch (error) {
-    console.error('Scraper preview error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Preview failed',
-      message: error.message 
-    });
-  }
-});
-
-// POST /api/admin/scraper/import/:gameType
-router.post('/scraper/import/:gameType', requireAuth, requireAdmin, scraperLimiter, async (req, res) => {
-  try {
-    const { gameType } = req.params;
-    const { maxResults = 50, mergeStrategy = 'skip' } = req.body;
-    
-    console.log('🔄 Importing scraped results:', { gameType, maxResults, mergeStrategy });
-    
-    const result = await scheduledScraper.triggerManualScrape(gameType);
-    
-    // Log the action
-    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
-    if (userId && result.success) {
-      await dbService.logAdminAction(
-        userId,
-        'IMPORT_SCRAPED_DATA',
-        { 
-          gameType,
-          maxResults,
-          mergeStrategy,
-          result: {
-            added: result.added,
-            skipped: result.skipped,
-            total: result.total
-          }
-        },
-        req
-      );
-    }
-    
-    res.json({
-      success: result.success,
-      message: result.success ? `Imported ${result.added} new results` : 'Import failed',
-      imported: result.added || 0,
-      skipped: result.skipped || 0,
-      total: result.total || 0,
-      error: result.error
-    });
-  } catch (error) {
-    console.error('Import error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Import failed',
-      message: error.message 
-    });
-  }
-});
-
-// GET /api/admin/scraper/status/:gameType
-router.get('/scraper/status/:gameType', requireAuth, requireAdmin, async (req, res) => {
+// POST /api/admin/upload/excel/:gameType
+router.post('/upload/excel/:gameType', requireAuth, requireAdmin, upload.single('file'), async (req, res) => {
   try {
     const { gameType } = req.params;
     
-    const status = scheduledScraper.getSchedulerStatus()[gameType];
-    
-    res.json({
-      success: true,
-      gameType,
-      ...status
-    });
-  } catch (error) {
-    console.error('Status error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Failed to get status',
-      message: error.message 
-    });
-  }
-});
-
-// ============================================
-// SCHEDULER ROUTES (Auto Update functionality)
-// ============================================
-
-// GET /api/admin/scheduler/status/:gameType
-router.get('/scheduler/status/:gameType', requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const { gameType } = req.params;
-    
-    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid game type'
-      });
-    }
-    
-    const status = scheduledScraper.getSchedulerStatus()[gameType];
-    
-    res.json({
-      success: true,
-      gameType,
-      status: status?.isActive ? 'active' : 'inactive',
-      ...status
-    });
-  } catch (error) {
-    console.error('Scheduler status error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Failed to get scheduler status',
-      message: error.message 
-    });
-  }
-});
-
-// GET /api/admin/scheduler/status (all games)
-router.get('/scheduler/status', requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const allStatus = scheduledScraper.getSchedulerStatus();
-    
-    res.json({
-      success: true,
-      schedulers: allStatus,
-      presets: scheduledScraper.SCHEDULE_PRESETS
-    });
-  } catch (error) {
-    console.error('Error getting all scheduler status:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// POST /api/admin/scheduler/start/:gameType
-router.post('/scheduler/start/:gameType', requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const { gameType } = req.params;
-    const { schedule = '0 */6 * * *' } = req.body;
-    
-    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid game type'
-      });
-    }
-    
-    const result = scheduledScraper.startScheduler(gameType, schedule);
-    
-    await dbService.updateSchedulerJob(gameType, {
-      isActive: true,
-      schedule,
-      nextRun: new Date()
-    });
-    
-    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
-    if (userId) {
-      await dbService.logAdminAction(
-        userId,
-        'START_SCHEDULER',
-        { gameType, schedule },
-        req
-      );
-    }
-    
-    res.json(result);
-  } catch (error) {
-    console.error('Error starting scheduler:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// POST /api/admin/scheduler/stop/:gameType
-router.post('/scheduler/stop/:gameType', requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const { gameType } = req.params;
-    
-    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid game type'
-      });
-    }
-    
-    const result = scheduledScraper.stopScheduler(gameType);
-    
-    await dbService.updateSchedulerJob(gameType, {
-      isActive: false
-    });
-    
-    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
-    if (userId) {
-      await dbService.logAdminAction(
-        userId,
-        'STOP_SCHEDULER',
-        { gameType },
-        req
-      );
-    }
-    
-    res.json(result);
-  } catch (error) {
-    console.error('Error stopping scheduler:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// POST /api/admin/scheduler/trigger/:gameType - Manual trigger
-router.post('/scheduler/trigger/:gameType', requireAuth, requireAdmin, scraperLimiter, async (req, res) => {
-  try {
-    const { gameType } = req.params;
-    
-    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid game type'
-      });
-    }
-    
-    console.log(`🔧 Manual scrape triggered for ${gameType.toUpperCase()}`);
-    
-    const result = await scheduledScraper.triggerManualScrape(gameType);
-    
-    if (result.success) {
-      const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
-      if (userId) {
-        await dbService.logAdminAction(
-          userId,
-          'TRIGGER_MANUAL_SCRAPE',
-          { 
-            gameType, 
-            result: {
-              success: result.success,
-              added: result.added,
-              skipped: result.skipped,
-              scraped: result.scraped,
-              total: result.total
-            }
-          },
-          req
-        );
-      }
-      
-      res.json({
-        success: true,
-        message: `Updated! ${result.added} new results added`,
-        added: result.added,
-        skipped: result.skipped,
-        total: result.total,
-        scraped: result.scraped
-      });
-    } else {
-      res.json({
-        success: false,
-        error: result.error || 'Scraping failed',
-        message: `Scraping failed: ${result.error}`,
-        added: 0
-      });
-    }
-  } catch (error) {
-    console.error('Error triggering manual scrape:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      message: `Error: ${error.message}`,
-      added: 0
-    });
-  }
-});
-
-// ============================================
-// EXISTING ROUTES (Keep all your original routes)
-// ============================================
-
-// GET /api/admin/stats
-router.get('/stats', requireAdmin, async (req, res) => {
-  try {
-    const stats = await dbService.getStatistics();
-    
-    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
-    if (userId) {
-      await dbService.logAdminAction(
-        userId,
-        'VIEW_STATS',
-        { stats },
-        req
-      );
-    }
-    
-    res.json({ success: true, stats });
-  } catch (error) {
-    console.error('Error getting admin stats:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// GET /api/admin/users
-router.get('/users', requireAdmin, async (req, res) => {
-  try {
-    const { page = 1, limit = 50 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    
-    const { rows: users, count: total } = await dbService.getAllUsers({ 
-      limit: parseInt(limit), 
-      offset 
-    });
-    
-    res.json({
-      success: true,
-      users: users.map(u => ({
-        id: u._id,
-        username: u.username,
-        email: u.email,
-        role: u.role,
-        isActive: u.isActive,
-        lastLogin: u.lastLogin,
-        createdAt: u.createdAt
-      })),
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(total / limit)
-      }
-    });
-  } catch (error) {
-    console.error('Error getting users:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// GET /api/admin/excel/preview
-router.get('/excel/preview', requireAdmin, async (req, res) => {
-  try {
-    const preview = {};
-    
-    for (const gameType of ['539', 'mark6', 'lotto649']) {
-      const stats = await dbService.getGameStatistics(gameType);
-      preview[gameType] = {
-        totalDraws: stats.totalDraws,
-        latestDraw: stats.latestDraw
-      };
-    }
-    
-    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
-    if (userId) {
-      await dbService.logAdminAction(
-        userId,
-        'PREVIEW_EXCEL',
-        { preview },
-        req
-      );
-    }
-    
-    res.json({ success: true, preview });
-  } catch (error) {
-    console.error('Error getting excel preview:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// POST /api/admin/excel/sync/:gameType
-router.post('/excel/sync/:gameType', requireAdmin, async (req, res) => {
-  try {
-    const { gameType } = req.params;
-    const { source = 'both' } = req.body;
-    
-    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid game type'
-      });
-    }
-    
-    const results = {};
-    
-    if (source === 'excel' || source === 'both') {
-      results.excel = await syncFromExcel(gameType);
-    }
-    
-    if (source === 'web' || source === 'both') {
-      results.web = await syncFromWeb(gameType);
-    }
-    
-    const totalImported = (results.excel?.imported || 0) + (results.web?.imported || 0);
-    const totalSkipped = (results.excel?.skipped || 0) + (results.web?.skipped || 0);
-    
-    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
-    if (userId) {
-      await dbService.logAdminAction(
-        userId,
-        'SYNC_DATA',
-        { gameType, source, results },
-        req
-      );
-    }
-    
-    res.json({
-      success: true,
-      message: `Sync completed! ${totalImported} imported, ${totalSkipped} skipped`,
-      results,
-      summary: {
-        totalImported,
-        totalSkipped
-      }
-    });
-  } catch (error) {
-    console.error('Sync error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// POST /api/admin/excel/upload
-router.post('/excel/upload', requireAdmin, upload.single('excel'), async (req, res) => {
-  try {
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -970,219 +445,564 @@ router.post('/excel/upload', requireAdmin, upload.single('excel'), async (req, r
       });
     }
     
-    const workbook = XLSX.readFile(req.file.path);
-    const importResults = [];
-    
-    for (const sheetName of workbook.SheetNames) {
-      const worksheet = workbook.Sheets[sheetName];
-      const data = XLSX.utils.sheet_to_json(worksheet);
-      
-      if (!data || data.length === 0) continue;
-      
-      const gameType = identifyGameType(sheetName, data);
-      if (!gameType) {
-        console.log(`Could not identify game type for sheet: ${sheetName}`);
-        continue;
-      }
-      
-      const results = [];
-      for (const row of data) {
-        const numbers = extractNumbers(row);
-        const bonus = row.Bonus || row.bonus || null;
-        const drawDate = normalizeDate(row.Date || row.date || row['Draw Date']);
-        
-        if (drawDate && numbers.length > 0) {
-          results.push({
-            gameType,
-            drawDate,
-            numbers: numbers.slice(0, gameType === '539' ? 5 : 6),
-            bonus: gameType !== '539' ? bonus : null,
-            source: 'excel_upload'
-          });
-        }
-      }
-      
-      if (results.length > 0) {
-        const bulkResult = await dbService.bulkUpsertLotteryResults(results);
-        importResults.push({
-          sheet: sheetName,
-          gameType,
-          processed: data.length,
-          imported: bulkResult.inserted,
-          modified: bulkResult.modified,
-          skipped: data.length - bulkResult.total
-        });
-      }
+    // Validate game type
+    const validGames = ['539', 'mark6', 'lotto649'];
+    if (!validGames.includes(gameType)) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Invalid game type',
+        validTypes: validGames
+      });
     }
     
+    console.log(`📤 Processing Excel upload for ${gameType}:`, req.file.originalname);
+    
+    // Sync Excel with database
+    const result = await syncExcelWithDB(req.file.path, gameType);
+    
+    // Clean up uploaded file
     fs.unlinkSync(req.file.path);
     
-    const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
+    // Log the action
+    const userId = req.session.userId || req.session.user?.id;
     if (userId) {
       await dbService.logAdminAction(
         userId,
-        'UPLOAD_EXCEL',
-        { filename: req.file.originalname, results: importResults },
+        'EXCEL_UPLOAD',
+        { gameType, filename: req.file.originalname, result },
         req
       );
     }
     
     res.json({
       success: true,
-      message: 'Excel file processed successfully',
-      results: importResults
+      message: `Excel data processed for ${gameType}`,
+      ...result
     });
+    
   } catch (error) {
     console.error('Excel upload error:', error);
-    if (req.file && fs.existsSync(req.file.path)) {
+    
+    // Clean up file on error
+    if (req.file?.path && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// GET /api/admin/database/stats
-router.get('/database/stats', requireAdmin, async (req, res) => {
-  try {
-    const stats = await dbService.getDatabaseStats();
     
-    res.json({
-      success: true,
-      stats
-    });
-  } catch (error) {
-    console.error('Error getting database stats:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: 'Failed to process Excel file',
+      message: error.message
     });
   }
 });
 
-// POST /api/admin/database/verify/:gameType
-router.post('/database/verify/:gameType', requireAdmin, async (req, res) => {
+// ============================================
+// SCRAPER CONTROL ROUTES
+// ============================================
+
+// POST /api/admin/scraper/trigger/:gameType
+router.post('/scraper/trigger/:gameType', requireAuth, requireAdmin, scraperLimiter, async (req, res) => {
   try {
     const { gameType } = req.params;
-    const { dateRange } = req.body;
+    const { options = {} } = req.body;
     
-    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
-      return res.status(400).json({
+    // Validate game type
+    const validGames = ['539', 'mark6', 'lotto649'];
+    if (!validGames.includes(gameType)) {
+      return res.status(400).json({ 
         success: false,
-        error: 'Invalid game type'
+        error: 'Invalid game type',
+        validTypes: validGames
       });
     }
     
-    const fromDate = dateRange?.from || '2020-01-01';
-    const toDate = dateRange?.to || new Date().toISOString().split('T')[0];
+    console.log(`🔄 Triggering scraper for ${gameType}`);
     
-    const missingDates = await dbService.findMissingDates(gameType, fromDate, toDate);
+    // Run the scraper
+    const result = await scheduledScraper.runScraper(gameType, options);
+    
+    // Log the action
+    const userId = req.session.userId || req.session.user?.id;
+    if (userId) {
+      await dbService.logAdminAction(
+        userId,
+        'TRIGGER_SCRAPER',
+        { gameType, options, result },
+        req
+      );
+    }
     
     res.json({
       success: true,
-      gameType,
-      dateRange: { from: fromDate, to: toDate },
-      missingDates,
-      missingCount: missingDates.length
+      message: `Scraper completed for ${gameType}`,
+      ...result
     });
+    
   } catch (error) {
-    console.error('Error verifying database:', error);
+    console.error('Scraper trigger error:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: 'Failed to run scraper',
+      message: error.message
     });
   }
 });
 
-// POST /api/admin/export/:gameType
-router.post('/export/:gameType', requireAdmin, async (req, res) => {
+// GET /api/admin/scraper/status
+router.get('/scraper/status', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const status = scheduledScraper.getStatus();
+    
+    res.json({
+      success: true,
+      ...status
+    });
+  } catch (error) {
+    console.error('Error getting scraper status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get scraper status',
+      message: error.message
+    });
+  }
+});
+
+// POST /api/admin/scraper/schedule/:gameType
+router.post('/scraper/schedule/:gameType', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { gameType } = req.params;
+    const { schedule, enabled = true } = req.body;
     
-    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
-      return res.status(400).json({
+    // Validate game type
+    const validGames = ['539', 'mark6', 'lotto649'];
+    if (!validGames.includes(gameType)) {
+      return res.status(400).json({ 
         success: false,
-        error: 'Invalid game type'
+        error: 'Invalid game type',
+        validTypes: validGames
       });
     }
     
-    const result = await scheduledScraper.exportToExcel(gameType);
+    console.log(`📅 Updating scraper schedule for ${gameType}:`, { schedule, enabled });
     
-    if (result.success) {
-      const userId = req.session.userId || req.session.user?.id || req.session.user?._id;
-      if (userId) {
-        await dbService.logAdminAction(
-          userId,
-          'EXPORT_TO_EXCEL',
-          { gameType, filename: result.filename, count: result.count },
-          req
-        );
-      }
-      
-      res.json(result);
-    } else {
-      res.status(500).json(result);
+    // Update schedule
+    const result = scheduledScraper.updateSchedule(gameType, schedule, enabled);
+    
+    // Log the action
+    const userId = req.session.userId || req.session.user?.id;
+    if (userId) {
+      await dbService.logAdminAction(
+        userId,
+        'UPDATE_SCRAPER_SCHEDULE',
+        { gameType, schedule, enabled },
+        req
+      );
     }
+    
+    res.json({
+      success: true,
+      message: `Schedule updated for ${gameType}`,
+      ...result
+    });
+    
   } catch (error) {
-    console.error('Error exporting data:', error);
+    console.error('Schedule update error:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: 'Failed to update schedule',
+      message: error.message
     });
   }
 });
 
-// GET /api/admin/logs
-router.get('/logs', requireAdmin, async (req, res) => {
+// ============================================
+// USER MANAGEMENT ROUTES
+// ============================================
+
+// GET /api/admin/users
+router.get('/users', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { page = 1, limit = 100, action } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const { page = 1, limit = 50, role, active } = req.query;
     
-    const { rows: logs, count: total } = await dbService.getAdminLogs({
-      limit: parseInt(limit),
-      offset,
-      action
-    });
+    // Build filter
+    const filter = {};
+    if (role) filter.role = role;
+    if (active !== undefined) filter.isActive = active === 'true';
+    
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Fetch users
+    const users = await db.User
+      .find(filter)
+      .select('-password')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean();
+    
+    // Get total count
+    const total = await db.User.countDocuments(filter);
     
     res.json({
       success: true,
-      logs: logs.map(log => ({
-        id: log._id,
-        username: log.userId?.username,
-        action: log.action,
-        details: log.details,
-        ipAddress: log.ipAddress,
-        timestamp: log.createdAt
-      })),
+      data: users,
       pagination: {
         total,
         page: parseInt(page),
         limit: parseInt(limit),
-        totalPages: Math.ceil(total / limit)
+        pages: Math.ceil(total / parseInt(limit))
       }
     });
+    
   } catch (error) {
-    console.error('Error getting admin logs:', error);
+    console.error('Error fetching users:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: 'Failed to fetch users',
+      message: error.message
     });
   }
 });
 
-// Test route - GET /api/admin/test
+// PUT /api/admin/users/:userId
+router.put('/users/:userId', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { role, isActive } = req.body;
+    
+    // Build update object
+    const update = {};
+    if (role) update.role = role;
+    if (isActive !== undefined) update.isActive = isActive;
+    
+    // Update user
+    const user = await db.User.findByIdAndUpdate(
+      userId,
+      update,
+      { new: true, select: '-password' }
+    );
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    
+    // Log the action
+    const adminId = req.session.userId || req.session.user?.id;
+    if (adminId) {
+      await dbService.logAdminAction(
+        adminId,
+        'UPDATE_USER',
+        { userId, updates: update },
+        req
+      );
+    }
+    
+    res.json({
+      success: true,
+      message: 'User updated successfully',
+      data: user
+    });
+    
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update user',
+      message: error.message
+    });
+  }
+});
+
+// DELETE /api/admin/users/:userId
+router.delete('/users/:userId', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Prevent self-deletion
+    if (userId === req.session.userId || userId === req.session.user?.id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot delete your own account'
+      });
+    }
+    
+    // Delete user
+    const user = await db.User.findByIdAndDelete(userId);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    
+    // Log the action
+    const adminId = req.session.userId || req.session.user?.id;
+    if (adminId) {
+      await dbService.logAdminAction(
+        adminId,
+        'DELETE_USER',
+        { userId, username: user.username },
+        req
+      );
+    }
+    
+    res.json({
+      success: true,
+      message: 'User deleted successfully'
+    });
+    
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete user',
+      message: error.message
+    });
+  }
+});
+
+// ============================================
+// ADMIN LOGS ROUTES
+// ============================================
+
+// GET /api/admin/logs
+router.get('/logs', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { page = 1, limit = 50, action, userId } = req.query;
+    
+    // Build filter
+    const filter = {};
+    if (action) filter.action = action;
+    if (userId) filter.user = userId;
+    
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Fetch logs with user details
+    const logs = await db.AdminLog
+      .find(filter)
+      .populate('user', 'username email')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean();
+    
+    // Get total count
+    const total = await db.AdminLog.countDocuments(filter);
+    
+    res.json({
+      success: true,
+      data: logs,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error fetching admin logs:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch logs',
+      message: error.message
+    });
+  }
+});
+
+// ============================================
+// DASHBOARD STATS ROUTES
+// ============================================
+
+// GET /api/admin/stats/dashboard
+router.get('/stats/dashboard', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const stats = {
+      users: {
+        total: await db.User.countDocuments(),
+        active: await db.User.countDocuments({ isActive: true }),
+        admins: await db.User.countDocuments({ role: 'admin' })
+      },
+      results: {
+        '539': await db.LotteryResult.countDocuments({ gameType: '539' }),
+        'mark6': await db.LotteryResult.countDocuments({ gameType: 'mark6' }),
+        'lotto649': await db.LotteryResult.countDocuments({ gameType: 'lotto649' })
+      },
+      predictions: {
+        total: await db.Prediction.countDocuments(),
+        today: await db.Prediction.countDocuments({
+          createdAt: { $gte: new Date().setHours(0, 0, 0, 0) }
+        })
+      },
+      scraper: scheduledScraper.getStatus()
+    };
+    
+    res.json({
+      success: true,
+      data: stats
+    });
+    
+  } catch (error) {
+    console.error('Error fetching dashboard stats:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch stats',
+      message: error.message
+    });
+  }
+});
+
+// ============================================
+// SCHEDULER JOB MANAGEMENT
+// ============================================
+
+// GET /api/admin/scheduler/jobs
+router.get('/scheduler/jobs', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const jobs = await db.SchedulerJob
+      .find()
+      .sort({ nextRunAt: 1 })
+      .lean();
+    
+    res.json({
+      success: true,
+      data: jobs
+    });
+    
+  } catch (error) {
+    console.error('Error fetching scheduler jobs:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch jobs',
+      message: error.message
+    });
+  }
+});
+
+// PUT /api/admin/scheduler/jobs/:jobId
+router.put('/scheduler/jobs/:jobId', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { isActive, schedule } = req.body;
+    
+    const update = {};
+    if (isActive !== undefined) update.isActive = isActive;
+    if (schedule) update.schedule = schedule;
+    
+    const job = await db.SchedulerJob.findByIdAndUpdate(
+      jobId,
+      update,
+      { new: true }
+    );
+    
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+    
+    // Log the action
+    const userId = req.session.userId || req.session.user?.id;
+    if (userId) {
+      await dbService.logAdminAction(
+        userId,
+        'UPDATE_SCHEDULER_JOB',
+        { jobId, updates: update },
+        req
+      );
+    }
+    
+    res.json({
+      success: true,
+      message: 'Job updated successfully',
+      data: job
+    });
+    
+  } catch (error) {
+    console.error('Error updating scheduler job:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update job',
+      message: error.message
+    });
+  }
+});
+
+// POST /api/admin/scheduler/jobs/:jobId/run
+router.post('/scheduler/jobs/:jobId/run', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    const job = await db.SchedulerJob.findById(jobId);
+    
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+    
+    // Trigger job execution based on type
+    let result;
+    if (job.type === 'scraper') {
+      result = await scheduledScraper.runScraper(job.gameType, job.options);
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: 'Unknown job type'
+      });
+    }
+    
+    // Update job last run
+    job.lastRunAt = new Date();
+    job.lastRunStatus = result.success ? 'success' : 'failed';
+    job.lastRunResult = result;
+    await job.save();
+    
+    // Log the action
+    const userId = req.session.userId || req.session.user?.id;
+    if (userId) {
+      await dbService.logAdminAction(
+        userId,
+        'RUN_SCHEDULER_JOB',
+        { jobId, jobType: job.type, result },
+        req
+      );
+    }
+    
+    res.json({
+      success: true,
+      message: 'Job executed successfully',
+      result
+    });
+    
+  } catch (error) {
+    console.error('Error running scheduler job:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to run job',
+      message: error.message
+    });
+  }
+});
+
+// ============================================
+// TEST ROUTE
+// ============================================
+
 router.get('/test', (req, res) => {
   res.json({
     success: true,
     message: 'Admin routes are working',
-    session: {
-      hasSession: !!req.session,
-      userId: req.session?.userId || null,
-      user: req.session?.user?.username || null
-    },
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    user: req.session?.user
   });
 });
 
