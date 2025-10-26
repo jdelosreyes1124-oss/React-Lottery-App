@@ -153,6 +153,90 @@ function writeExcelFile(data) {
   }
 }
 
+// Helper function to sync MongoDB with Excel (remove items from MongoDB that don't exist in Excel)
+async function syncMongoDBWithExcel() {
+  if (!isMongoDBAvailable()) {
+    return { success: false, message: 'MongoDB not available' };
+  }
+
+  try {
+    const collection = mongoose.connection.db.collection('lottery_results');
+    const excelData = readExcelFile();
+    
+    // Get all Excel dates for comparison
+    const excelDates = excelData.map(record => formatDateString(record.drawDate));
+    
+    // Get all MongoDB records
+    const mongoRecords = await collection.find({ gameType: '539' }).toArray();
+    
+    let deleted = 0;
+    let kept = 0;
+    
+    // Check each MongoDB record
+    for (const mongoRecord of mongoRecords) {
+      const mongoDate = formatDateString(mongoRecord.drawDate);
+      
+      // If this date doesn't exist in Excel, delete it from MongoDB
+      if (!excelDates.includes(mongoDate)) {
+        await collection.deleteOne({ _id: mongoRecord._id });
+        deleted++;
+        console.log(`[SYNC] Deleted orphaned MongoDB record for date: ${mongoDate}`);
+      } else {
+        kept++;
+      }
+    }
+    
+    // Now add any Excel records that are missing in MongoDB
+    let added = 0;
+    for (const excelRecord of excelData) {
+      const parsedDate = parseDate(excelRecord.drawDate);
+      const startOfDay = new Date(parsedDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(parsedDate);
+      endOfDay.setHours(23, 59, 59, 999);
+      
+      const existing = await collection.findOne({
+        gameType: '539',
+        drawDate: {
+          $gte: startOfDay,
+          $lte: endOfDay
+        }
+      });
+      
+      if (!existing) {
+        const newId = new ObjectId();
+        await collection.insertOne({
+          _id: newId,
+          gameType: '539',
+          drawDate: parsedDate,
+          numbers: excelRecord.numbers,
+          source: 'excel_sync',
+          metadata: {
+            syncedAt: new Date()
+          },
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+        added++;
+        console.log(`[SYNC] Added missing record for date: ${excelRecord.drawDate}`);
+      }
+    }
+    
+    return {
+      success: true,
+      deleted: deleted,
+      kept: kept,
+      added: added,
+      totalMongo: kept + added,
+      totalExcel: excelData.length
+    };
+    
+  } catch (error) {
+    console.error('[SYNC] Error syncing MongoDB with Excel:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 // SYNC FUNCTION: Sync single record from Excel to MongoDB
 async function syncRecordToMongoDB(record) {
   if (!isMongoDBAvailable()) {
@@ -217,126 +301,34 @@ async function syncRecordToMongoDB(record) {
   }
 }
 
-// SYNC ALL: Sync all Excel records to MongoDB
-async function syncAllToMongoDB() {
-  if (!isMongoDBAvailable()) {
-    console.log('[SYNC ALL] MongoDB not available');
-    return { success: false, message: 'MongoDB not connected' };
-  }
-
-  try {
-    const excelData = readExcelFile();
-    const collection = mongoose.connection.db.collection('lottery_results');
-    
-    let synced = 0;
-    let skipped = 0;
-    let failed = 0;
-    
-    for (const record of excelData) {
-      try {
-        const parsedDate = parseDate(record.drawDate);
-        
-        // Check if exists
-        const startOfDay = new Date(parsedDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(parsedDate);
-        endOfDay.setHours(23, 59, 59, 999);
-        
-        const existing = await collection.findOne({
-          gameType: '539',
-          drawDate: {
-            $gte: startOfDay,
-            $lte: endOfDay
-          }
-        });
-        
-        if (!existing) {
-          // Insert new record
-          const newId = new ObjectId();
-          const documentData = {
-            _id: newId,
-            gameType: '539',
-            drawDate: parsedDate,
-            numbers: record.numbers,
-            source: 'excel_sync',
-            metadata: {
-              syncedAt: new Date(),
-              originalIndex: record.id
-            },
-            createdAt: new Date(),
-            updatedAt: new Date()
-          };
-          
-          await collection.insertOne(documentData);
-          synced++;
-          console.log(`[SYNC] Synced record for ${record.drawDate}`);
-        } else {
-          skipped++;
-        }
-      } catch (err) {
-        failed++;
-        console.error(`[SYNC] Failed to sync record:`, err.message);
-      }
-    }
-    
-    return {
-      success: true,
-      message: `Sync completed: ${synced} added, ${skipped} skipped, ${failed} failed`,
-      stats: { synced, skipped, failed, total: excelData.length }
-    };
-    
-  } catch (error) {
-    console.error('[SYNC ALL] Error:', error);
-    return { success: false, message: error.message };
-  }
-}
-
-// GET /api/admin/historical-results/539
+// GET /api/admin/historical-results/539 - IMPROVED VERSION
 router.get('/historical-results/539', async (req, res) => {
   try {
     console.log('[GET] Loading results...');
-    let results = [];
-    let source = 'none';
     
-    // Try MongoDB first
+    // Always sync first if MongoDB is available
     if (isMongoDBAvailable()) {
-      try {
-        const collection = mongoose.connection.db.collection('lottery_results');
-        const mongoResults = await collection.find({ gameType: '539' })
-          .sort({ drawDate: -1 })
-          .toArray();
-        
-        if (mongoResults && mongoResults.length > 0) {
-          results = mongoResults.map((result, index) => ({
-            _id: result._id ? result._id.toString() : undefined,
-            id: index,
-            drawDate: formatDateString(result.drawDate),
-            numbers: result.numbers || []
-          }));
-          source = 'mongodb';
-          console.log(`[INFO] Loaded ${results.length} from MongoDB`);
-        }
-      } catch (dbError) {
-        console.log('[WARNING] MongoDB query failed:', dbError.message);
+      console.log('[GET] Syncing MongoDB with Excel first...');
+      const syncResult = await syncMongoDBWithExcel();
+      if (syncResult.success) {
+        console.log(`[GET] Sync complete: MongoDB now matches Excel`);
       }
     }
     
-    // Fallback to Excel
-    if (results.length === 0) {
-      results = readExcelFile();
-      source = results.length > 0 ? 'excel' : 'none';
-      console.log(`[INFO] Using Excel data (${results.length} results)`);
-    }
+    // Always return Excel data as source of truth
+    const results = readExcelFile();
+    
+    console.log(`[GET] Returning ${results.length} results from Excel`);
     
     res.json({
       success: true,
       results: results,
       total: results.length,
-      source: source
+      source: 'excel'  // Always Excel as source of truth
     });
     
   } catch (error) {
-    console.error('[ERROR] GET failed:', error);
+    console.error('[GET] Error:', error);
     res.json({ 
       success: true, 
       results: [],
@@ -478,13 +470,22 @@ router.post('/historical-results/539/add', async (req, res) => {
   }
 });
 
-// DELETE /api/admin/historical-results/539/:id - FIXED VERSION
+// DELETE /api/admin/historical-results/539/:id - IMPROVED VERSION WITH SYNC
 router.delete('/historical-results/539/:id', async (req, res) => {
   try {
     const { id } = req.params;
     console.log(`[DELETE] Delete request for ID: ${id}`);
-
-    // Read current Excel data
+    
+    // STEP 1: Sync MongoDB with Excel first (remove orphaned records)
+    if (isMongoDBAvailable()) {
+      console.log('[DELETE] Syncing MongoDB with Excel before delete...');
+      const syncResult = await syncMongoDBWithExcel();
+      if (syncResult.success) {
+        console.log(`[DELETE] Sync complete: ${syncResult.deleted} removed, ${syncResult.added} added`);
+      }
+    }
+    
+    // STEP 2: Read current Excel data (source of truth)
     const currentData = readExcelFile();
     
     if (!currentData || currentData.length === 0) {
@@ -493,95 +494,55 @@ router.delete('/historical-results/539/:id', async (req, res) => {
         error: 'No data found'
       });
     }
-
+    
     let deleted = false;
     let itemToDelete = null;
-
-    // Handle both MongoDB ObjectId and numeric index
+    let deleteIndex = -1;
+    
+    // STEP 3: Determine what to delete
+    // Handle MongoDB ObjectId format
     if (id.match(/^[0-9a-fA-F]{24}$/)) {
-      // MongoDB ObjectId format - try MongoDB first
+      // This is a MongoDB ID, find the corresponding Excel entry
       if (isMongoDBAvailable()) {
         try {
           const collection = mongoose.connection.db.collection('lottery_results');
-          
-          // Find the document first
           const doc = await collection.findOne({ _id: new ObjectId(id) });
           
           if (doc) {
-            // Delete from MongoDB
-            const deleteResult = await collection.deleteOne({ _id: new ObjectId(id) });
+            // Find matching Excel entry by date
+            deleteIndex = currentData.findIndex(row => {
+              const rowDate = formatDateString(row.drawDate);
+              const docDate = formatDateString(doc.drawDate);
+              return rowDate === docDate;
+            });
             
-            if (deleteResult.deletedCount > 0) {
-              deleted = true;
-              itemToDelete = doc;
-              console.log('[INFO] Deleted from MongoDB');
-              
-              // Also remove from Excel to keep in sync
-              const excelIndex = currentData.findIndex(row => {
-                const rowDate = formatDateString(row.drawDate);
-                const docDate = formatDateString(doc.drawDate);
-                return rowDate === docDate;
-              });
-              
-              if (excelIndex !== -1) {
-                currentData.splice(excelIndex, 1);
-                console.log('[INFO] Also removed from Excel at index:', excelIndex);
-              }
+            if (deleteIndex !== -1) {
+              itemToDelete = currentData[deleteIndex];
             }
           }
-        } catch (dbError) {
-          console.log('[WARNING] MongoDB delete failed:', dbError.message);
-        }
-      }
-    }
-    
-    // If not deleted from MongoDB, try Excel by index
-    if (!deleted) {
-      const index = parseInt(id);
-      
-      if (isNaN(index) || index < 0 || index >= currentData.length) {
-        return res.status(404).json({
-          success: false,
-          error: 'Invalid ID or index'
-        });
-      }
-      
-      // Remove from Excel
-      itemToDelete = currentData[index];
-      currentData.splice(index, 1);
-      deleted = true;
-      console.log('[INFO] Deleted from Excel at index:', index);
-      
-      // Try to also delete from MongoDB if available
-      if (isMongoDBAvailable() && itemToDelete) {
-        try {
-          const collection = mongoose.connection.db.collection('lottery_results');
-          const deleteDate = parseDate(itemToDelete.drawDate);
-          const startOfDay = new Date(deleteDate);
-          startOfDay.setHours(0, 0, 0, 0);
-          const endOfDay = new Date(deleteDate);
-          endOfDay.setHours(23, 59, 59, 999);
-          
-          await collection.deleteOne({
-            gameType: '539',
-            drawDate: {
-              $gte: startOfDay,
-              $lte: endOfDay
-            }
-          });
-          console.log('[INFO] Also deleted from MongoDB');
         } catch (err) {
-          console.log('[WARNING] Could not delete from MongoDB:', err.message);
+          console.log('[DELETE] Error finding MongoDB document:', err.message);
         }
+      }
+    } else {
+      // This is a numeric index
+      deleteIndex = parseInt(id);
+      if (!isNaN(deleteIndex) && deleteIndex >= 0 && deleteIndex < currentData.length) {
+        itemToDelete = currentData[deleteIndex];
       }
     }
     
-    if (!deleted) {
+    // STEP 4: Validate we found something to delete
+    if (deleteIndex === -1 || !itemToDelete) {
       return res.status(404).json({
         success: false,
         error: 'Result not found'
       });
     }
+    
+    // STEP 5: Delete from Excel first (source of truth)
+    currentData.splice(deleteIndex, 1);
+    console.log(`[DELETE] Removed from Excel at index: ${deleteIndex}`);
     
     // Re-index the remaining data
     currentData.forEach((row, idx) => {
@@ -592,52 +553,55 @@ router.delete('/historical-results/539/:id', async (req, res) => {
     if (!writeExcelFile(currentData)) {
       return res.status(500).json({
         success: false,
-        error: 'Failed to save changes'
+        error: 'Failed to save changes to Excel'
       });
     }
     
-    console.log('[SUCCESS] Delete completed, data updated');
+    deleted = true;
+    console.log('[DELETE] Excel file updated successfully');
     
-    // Get fresh data for response
-    let allResults = [];
-    
-    // Try to get from MongoDB first
-    if (isMongoDBAvailable()) {
+    // STEP 6: Delete from MongoDB (if available)
+    if (isMongoDBAvailable() && itemToDelete) {
       try {
         const collection = mongoose.connection.db.collection('lottery_results');
-        const mongoResults = await collection.find({ gameType: '539' })
-          .sort({ drawDate: -1 })
-          .toArray();
+        const deleteDate = parseDate(itemToDelete.drawDate);
+        const startOfDay = new Date(deleteDate);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(deleteDate);
+        endOfDay.setHours(23, 59, 59, 999);
         
-        if (mongoResults.length > 0) {
-          allResults = mongoResults.map((result, index) => ({
-            _id: result._id.toString(),
-            id: index,
-            drawDate: formatDateString(result.drawDate),
-            numbers: result.numbers
-          }));
-        }
+        const deleteResult = await collection.deleteMany({
+          gameType: '539',
+          drawDate: {
+            $gte: startOfDay,
+            $lte: endOfDay
+          }
+        });
+        
+        console.log(`[DELETE] Deleted ${deleteResult.deletedCount} record(s) from MongoDB`);
       } catch (err) {
-        console.log('[WARNING] Could not fetch from MongoDB:', err.message);
+        console.log('[DELETE] Warning: Could not delete from MongoDB:', err.message);
+        // Continue anyway - Excel is source of truth
       }
     }
     
-    // If no MongoDB results, use Excel
-    if (allResults.length === 0) {
-      allResults = currentData;
-    }
+    // STEP 7: Get fresh data for response (from Excel as source of truth)
+    const finalData = readExcelFile();
     
+    console.log(`[DELETE] Operation complete. Remaining records: ${finalData.length}`);
+    
+    // STEP 8: Return the updated data
     res.json({
       success: true,
       message: 'Result deleted successfully',
       deletedItem: itemToDelete,
-      results: allResults,
-      total: allResults.length
+      results: finalData,  // Return Excel data as source of truth
+      total: finalData.length,
+      source: 'excel'  // Indicate data source
     });
     
   } catch (error) {
-    console.error('[ERROR] Delete failed:', error.message);
-    console.error('[ERROR] Stack:', error.stack);
+    console.error('[DELETE] Error:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Failed to delete result',
@@ -659,15 +623,94 @@ router.post('/historical-results/539/sync', async (req, res) => {
       });
     }
     
-    const result = await syncAllToMongoDB();
+    const result = await syncMongoDBWithExcel();
     
-    res.json(result);
+    res.json({
+      success: result.success,
+      message: result.success ? 
+        `Sync completed: ${result.deleted} deleted, ${result.added} added, ${result.kept} kept` :
+        'Sync failed',
+      stats: result
+    });
     
   } catch (error) {
     console.error('[ERROR] Sync failed:', error.message);
     res.status(500).json({ 
       success: false, 
       error: 'Sync failed',
+      message: error.message
+    });
+  }
+});
+
+// POST /api/admin/historical-results/539/force-sync - Force complete sync
+router.post('/historical-results/539/force-sync', async (req, res) => {
+  try {
+    console.log('[FORCE-SYNC] Starting complete sync...');
+    
+    if (!isMongoDBAvailable()) {
+      return res.status(503).json({
+        success: false,
+        error: 'MongoDB not connected'
+      });
+    }
+    
+    const collection = mongoose.connection.db.collection('lottery_results');
+    
+    // Step 1: Clear all MongoDB 539 records
+    const deleteResult = await collection.deleteMany({ gameType: '539' });
+    console.log(`[FORCE-SYNC] Deleted ${deleteResult.deletedCount} records from MongoDB`);
+    
+    // Step 2: Read Excel data
+    const excelData = readExcelFile();
+    console.log(`[FORCE-SYNC] Found ${excelData.length} records in Excel`);
+    
+    // Step 3: Insert all Excel records into MongoDB
+    let inserted = 0;
+    let failed = 0;
+    
+    for (const record of excelData) {
+      try {
+        const newId = new ObjectId();
+        await collection.insertOne({
+          _id: newId,
+          gameType: '539',
+          drawDate: parseDate(record.drawDate),
+          numbers: record.numbers,
+          source: 'force_sync',
+          metadata: {
+            syncedAt: new Date(),
+            originalIndex: record.id
+          },
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+        inserted++;
+      } catch (err) {
+        console.error(`[FORCE-SYNC] Failed to insert record:`, err.message);
+        failed++;
+      }
+    }
+    
+    console.log(`[FORCE-SYNC] Complete: ${inserted} inserted, ${failed} failed`);
+    
+    res.json({
+      success: true,
+      message: 'Force sync completed',
+      stats: {
+        deletedFromMongo: deleteResult.deletedCount,
+        insertedToMongo: inserted,
+        failedInserts: failed,
+        totalExcelRecords: excelData.length,
+        finalMongoCount: inserted
+      }
+    });
+    
+  } catch (error) {
+    console.error('[FORCE-SYNC] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Force sync failed',
       message: error.message
     });
   }
@@ -701,7 +744,7 @@ router.get('/historical-results/539/status', async (req, res) => {
         exists: fs.existsSync(EXCEL_539_PATH),
         count: excelCount
       },
-      syncNeeded: mongoConnected && (excelCount > mongoCount),
+      syncNeeded: mongoConnected && (excelCount !== mongoCount),
       message: mongoConnected 
         ? `MongoDB: ${mongoCount} records, Excel: ${excelCount} records`
         : 'MongoDB not connected, using Excel storage'
