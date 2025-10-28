@@ -92,25 +92,45 @@ class LotteryScraperService {
       '--disable-gpu',
       '--no-first-run',
       '--no-zygote',
+      '--single-process',
       '--disable-extensions'
     ];
     
-    const options = {
-      headless: this.headless,
-      args: args,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || 'chromium'
+    let options = {
+      headless: "new",
+      args: args
     };
+
+    // Special handling for Render.com environment
+    if (process.env.RENDER) {
+      options = {
+        ...options,
+        executablePath: '/usr/bin/google-chrome-stable',
+        args: [
+          ...args,
+          '--disable-dev-tools'
+        ]
+      };
+    }
     
     try {
       console.log('🔍 Launching browser with options:', {
         headless: options.headless,
-        executablePath: options.executablePath,
-        args: options.args
+        executablePath: options.executablePath || '(default)',
+        args: options.args,
+        isRender: !!process.env.RENDER
       });
       
-      return await puppeteer.launch(options);
+      const browser = await puppeteer.launch(options);
+      console.log('✅ Browser launched successfully');
+      return browser;
     } catch (error) {
       console.error('❌ Failed to launch browser:', error);
+      console.error('Environment:', {
+        RENDER: process.env.RENDER,
+        NODE_ENV: process.env.NODE_ENV,
+        PUPPETEER_EXECUTABLE_PATH: process.env.PUPPETEER_EXECUTABLE_PATH
+      });
       throw error;
     }
   }
