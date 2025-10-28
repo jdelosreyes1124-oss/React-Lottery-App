@@ -1,9 +1,8 @@
-const LotteryScraperService = require('./scraper');
+const scraper = require('./scraper');
 
-// Create dedicated instance for 539
+// Create dedicated interface for 539
 const scraper539 = {
     scrapeLatestResults: async () => {
-        const scraper = new LotteryScraperService();
         try {
             console.log('🎲 Starting 539 scraper...');
             const results = await scraper.scrapeLatestResults();
@@ -15,7 +14,6 @@ const scraper539 = {
         }
     },
     scrapeResults: async (maxResults) => {
-        const scraper = new LotteryScraperService();
         try {
             console.log('🎲 Starting 539 scraper...');
             const results = await scraper.scrapeResults(maxResults);

@@ -596,33 +596,52 @@ async function triggerScrape(gameType) {
     
     switch (gameType) {
       case '539':
-        results = await scraper539.scrapeLatestResults();
-        
-        // Save results to database
-        if (results && results.length > 0) {
-          const result = results[0];
-          const { drawDate, numbers } = result;
+        try {
+          results = await scraper539.scrapeLatestResults();
+          console.log('✅ Scraping completed:', results);
           
-          // Find the highest numeric _id
-          const lastResult = await db.LotteryResult.findOne({
-            _id: { $type: "number" }
-          })
-          .sort({ _id: -1 })
-          .lean();
-          
-          const nextId = (lastResult?._id || 10010) + 1;
-          
-          // Create new lottery result
-          const newResult = new db.LotteryResult({
-            _id: nextId,
-            gameType: '539',
-            drawDate: new Date(drawDate),
-            numbers: numbers,
-            source: 'web_scraper'
-          });
-          
-          await newResult.save();
-          console.log('✅ Saved new result with ID:', nextId);
+          // Save results to database
+          if (results && results.length > 0) {
+            const result = results[0];
+            const { drawDate, numbers } = result;
+            
+            // Find the highest numeric _id
+            const lastResult = await db.LotteryResult.findOne({
+              _id: { $type: "number" }
+            })
+            .sort({ _id: -1 })
+            .lean();
+            
+            const nextId = (lastResult?._id || 10010) + 1;
+            
+            // Check for existing result on the same date
+            const existingResult = await db.LotteryResult.findOne({
+              gameType: '539',
+              drawDate: new Date(drawDate)
+            });
+
+            if (existingResult) {
+              console.log('⚠️ Result for date already exists:', drawDate);
+              throw new Error(`Result for ${drawDate} already exists`);
+            }
+            
+            // Create new lottery result
+            const newResult = new db.LotteryResult({
+              _id: nextId,
+              gameType: '539',
+              drawDate: new Date(drawDate),
+              numbers: numbers,
+              source: 'web_scraper'
+            });
+            
+            await newResult.save();
+            console.log('✅ Saved new result with ID:', nextId);
+          } else {
+            throw new Error('No results returned from scraper');
+          }
+        } catch (error) {
+          console.error('❌ Error during 539 scraping/saving:', error);
+          throw error;
         }
         break;
         
