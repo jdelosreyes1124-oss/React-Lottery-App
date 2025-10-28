@@ -591,7 +591,35 @@ async function triggerScrape(gameType) {
     switch (gameType) {
       case '539':
         results = await scraper539.scrapeLatestResults();
+        
+        // Save results to database
+        if (results && results.length > 0) {
+          const result = results[0];
+          const { drawDate, numbers } = result;
+          
+          // Find the highest numeric _id
+          const lastResult = await db.LotteryResult.findOne({
+            _id: { $type: "number" }
+          })
+          .sort({ _id: -1 })
+          .lean();
+          
+          const nextId = (lastResult?._id || 10010) + 1;
+          
+          // Create new lottery result
+          const newResult = new db.LotteryResult({
+            _id: nextId,
+            gameType: '539',
+            drawDate: new Date(drawDate),
+            numbers: numbers,
+            source: 'web_scraper'
+          });
+          
+          await newResult.save();
+          console.log('✅ Saved new result with ID:', nextId);
+        }
         break;
+        
       case 'mark6':
         results = await scraperMark6.scrapeLatestResults();
         break;

@@ -18,6 +18,9 @@ const authRoutes = require('./routes/auth');
 const historicalResultsRoutes = require('./routes/historicalResults');
 const schedulerRoutes = require('./routes/scheduler');
 
+// Initialize scrapers
+require('./services/scraper');  // Ensure scraper is initialized
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 

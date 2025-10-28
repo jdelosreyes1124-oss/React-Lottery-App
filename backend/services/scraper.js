@@ -376,11 +376,8 @@ class LotteryScraperService {
 // Create singleton instance
 const scraperInstance = new LotteryScraperService();
 
-// Export as object with methods (compatible with other scrapers)
-module.exports = {
-  scrapeLatestResults: () => scraperInstance.scrapeLatestResults(),
-  scrapeResults: (maxResults) => scraperInstance.scrapeResults(maxResults)
-};
+// Export as direct object instance (easier to require and use)
+module.exports = scraperInstance;
 module.exports = {
   scrapeResults: (maxResults) => scraperInstance.scrapeResults(maxResults),
   validateResults: (results) => scraperInstance.validateResults(results),
