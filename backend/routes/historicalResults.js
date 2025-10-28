@@ -436,7 +436,7 @@ router.post('/historical-results/539/add', async (req, res) => {
 
     const formattedResults = allResults.map((result, index) => ({
       id: index,
-      drawDate: result.drawDate.toLocaleDateString('en-US'),
+      drawDate: new Date(result.drawDate).toLocaleDateString('en-US'),
       numbers: result.numbers
     }));
 
