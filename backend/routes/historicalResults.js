@@ -515,7 +515,7 @@ router.delete('/historical-results/539/:id', async (req, res) => {
 
     const formattedResults = updatedResults.map((result, index) => ({
       id: index,
-      drawDate: result.drawDate.toLocaleDateString('en-US'),
+      drawDate: new Date(result.drawDate).toLocaleDateString('en-US'),
       numbers: result.numbers
     }));
 
