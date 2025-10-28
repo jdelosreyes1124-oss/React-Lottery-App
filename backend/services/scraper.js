@@ -4,8 +4,9 @@
  * services/scraper.js
  */
 
-// Use puppeteer-core for Render.com deployment
 const puppeteer = require('puppeteer');
+const os = require('os');
+const path = require('path');
 
 class LotteryScraperService {
   constructor() {
@@ -14,6 +15,11 @@ class LotteryScraperService {
     this.timeout = 60000;
     this.headless = "new";
     this.maxPages = 102;
+    
+    // Configure cache directory for Render.com
+    if (process.env.RENDER) {
+      process.env.PUPPETEER_CACHE_DIR = path.join(os.homedir(), '.cache', 'puppeteer');
+    }
   }
 
   async scrapeLatestResults() {
@@ -87,48 +93,25 @@ class LotteryScraperService {
 
   async launchBrowser() {
     const minimal_args = [
-      '--autoplay-policy=user-gesture-required',
-      '--disable-background-networking',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-breakpad',
-      '--disable-client-side-phishing-detection',
-      '--disable-component-update',
-      '--disable-default-apps',
-      '--disable-dev-shm-usage',
-      '--disable-domain-reliability',
-      '--disable-extensions',
-      '--disable-features=AudioServiceOutOfProcess',
-      '--disable-hang-monitor',
-      '--disable-ipc-flooding-protection',
-      '--disable-notifications',
-      '--disable-offer-store-unmasked-wallet-cards',
-      '--disable-popup-blocking',
-      '--disable-print-preview',
-      '--disable-prompt-on-repost',
-      '--disable-renderer-backgrounding',
-      '--disable-setuid-sandbox',
-      '--disable-speech-api',
-      '--disable-sync',
-      '--hide-scrollbars',
-      '--ignore-gpu-blacklist',
-      '--metrics-recording-only',
-      '--mute-audio',
-      '--no-default-browser-check',
-      '--no-first-run',
-      '--no-pings',
       '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-first-run',
       '--no-zygote',
-      '--password-store=basic',
-      '--use-gl=swiftshader',
-      '--use-mock-keychain',
+      '--deterministic-fetch',
+      '--disable-features=site-per-process',
+      '--disable-accelerated-2d-canvas',
+      '--disable-gpu-sandbox',
+      '--single-process'
     ];
     
     try {
       console.log('🔍 Launching browser...');
+      console.log('Cache directory:', process.env.PUPPETEER_CACHE_DIR || '(default)');
       
       const options = {
-        headless: this.headless,
+        headless: "new",
         args: minimal_args,
         ignoreHTTPSErrors: true,
         defaultViewport: {
@@ -137,18 +120,42 @@ class LotteryScraperService {
         }
       };
 
+      // Check if browser is installed
+      try {
+        await require('child_process').execSync('npx puppeteer browsers install chrome', { stdio: 'inherit' });
+      } catch (err) {
+        console.log('Browser installation check failed:', err.message);
+      }
+
       const browser = await puppeteer.launch(options);
       const version = await browser.version();
       console.log('✅ Browser launched successfully:', version);
+      
+      // Log some debug info
+      const pages = await browser.pages();
+      console.log(`Initial pages: ${pages.length}`);
+      
       return browser;
     } catch (error) {
       console.error('❌ Failed to launch browser:', error);
-      console.error('Current working directory:', process.cwd());
       console.error('Environment:', {
         RENDER: process.env.RENDER,
         NODE_ENV: process.env.NODE_ENV,
-        PATH: process.env.PATH
+        PUPPETEER_CACHE_DIR: process.env.PUPPETEER_CACHE_DIR,
+        cwd: process.cwd(),
+        platform: process.platform,
+        arch: process.arch
       });
+      
+      // Try to list cache directory contents
+      try {
+        const cacheDir = process.env.PUPPETEER_CACHE_DIR || path.join(os.homedir(), '.cache', 'puppeteer');
+        const files = require('fs').readdirSync(cacheDir);
+        console.log('Cache directory contents:', files);
+      } catch (err) {
+        console.error('Could not list cache directory:', err.message);
+      }
+      
       throw error;
     }
   }

@@ -3,13 +3,20 @@ services:
     name: lottery-backend
     env: node
     buildCommand: |
-      cd backend && npm install
+      cd backend && \
+      mkdir -p ~/.cache/puppeteer && \
+      chmod -R 777 ~/.cache/puppeteer && \
+      npm install && \
+      npx puppeteer browsers install chrome && \
+      ls -la ~/.cache/puppeteer
     startCommand: cd backend && node server.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: RENDER
-        value: true
+        value: "true"
+      - key: PUPPETEER_CACHE_DIR
+        value: /home/render/.cache/puppeteer
     buildFilter:
       paths:
       - backend/**/*
