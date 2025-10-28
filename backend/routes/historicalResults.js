@@ -383,7 +383,15 @@ router.post('/historical-results/539/add', async (req, res) => {
     }
     
     const sortedNumbers = parsedNumbers.sort((a, b) => a - b);
+    
+    // Ensure proper date parsing
     const parsedDate = new Date(drawDate);
+    if (isNaN(parsedDate.getTime())) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid date format. Please use YYYY-MM-DD format'
+      });
+    }
     
     // Check for existing record
     const existingResult = await LotteryResult.findOne({
