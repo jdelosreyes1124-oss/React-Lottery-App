@@ -409,7 +409,13 @@ router.post('/historical-results/539/add', async (req, res) => {
       source: 'admin'
     });
     
-    await newResult.save();
+    try {
+      await newResult.save();
+      console.log('[ADD] New result saved with ID:', newResult._id);
+    } catch (saveError) {
+      console.error('[ADD] Save error:', saveError);
+      throw saveError;
+    }
     
     // Get updated results
     const allResults = await LotteryResult.find({ gameType: '539' })
