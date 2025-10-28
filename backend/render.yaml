@@ -4,13 +4,22 @@ services:
     name: lottery-backend
     runtime: node
     buildCommand: |
-      # Install Chrome
-      wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - &&
-      echo "deb http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list &&
+      # Install Chrome (using Debian 11 repository)
       apt-get update &&
-      apt-get install -y google-chrome-stable &&
+      apt-get install -y wget gnupg2 &&
+      wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - &&
+      echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google.list &&
+      apt-get update &&
+      apt-get install -y google-chrome-stable xvfb &&
       npm install
-    startCommand: npm start
+    startCommand: |
+      # Start Xvfb for headless Chrome
+      Xvfb :99 -screen 0 1024x768x16 &
+      export DISPLAY=:99.0
+      npm start
+    envVars:
+      - key: DISPLAY
+        value: :99.0
     healthCheckPath: /api/health
     autoDeploy: true
     plan: free

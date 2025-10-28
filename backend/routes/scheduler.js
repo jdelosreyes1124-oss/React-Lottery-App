@@ -4,18 +4,33 @@ const scheduledScraper = require('../services/scheduledScraper');
 
 // GET /api/admin/scheduler/status/:gameType
 router.get('/scheduler/status/:gameType', async (req, res) => {
+  // Add CORS headers specifically for this route
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+
   try {
     const { gameType } = req.params;
+    
+    if (!gameType) {
+      return res.status(400).json({
+        success: false,
+        error: 'Game type is required'
+      });
+    }
+
     const status = scheduledScraper.getStatus(gameType);
     res.json({
       success: true,
-      status: status
+      status: status,
+      serverTime: new Date().toISOString()
     });
   } catch (error) {
     console.error('[SCHEDULER] Status error:', error);
-    res.status(500).json({
+    res.status(error.status || 500).json({
       success: false,
-      error: error.message
+      error: error.message || 'Internal server error',
+      serverTime: new Date().toISOString()
     });
   }
 });

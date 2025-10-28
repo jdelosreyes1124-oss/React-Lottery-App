@@ -56,8 +56,14 @@ const corsOptions = {
       'http://localhost:3001', 
       'http://localhost:5173',
       'https://react-lottery-app-qber.vercel.app',
-      process.env.FRONTEND_URL
+      process.env.FRONTEND_URL,
+      'https://*.vercel.app'  // Allow all Vercel subdomains
     ].filter(Boolean); // Remove any undefined values
+
+    // Allow Vercel preview deployments
+    if (origin.includes('vercel.app')) {
+      return callback(null, true);
+    }
     
     // Check if origin is allowed
     const isAllowed = 
