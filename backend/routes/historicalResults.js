@@ -401,15 +401,12 @@ router.post('/historical-results/539/add', async (req, res) => {
       });
     }
 
-    // Create new result with explicit _id
+    // Create new result
     const newResult = await LotteryResult.create({
-      _id: new mongoose.Types.ObjectId(),
       gameType: '539',
       drawDate: parsedDate,
       numbers: sortedNumbers,
-      source: 'admin',
-      createdAt: new Date(),
-      updatedAt: new Date()
+      source: 'admin'
     });
     
     // Get updated results

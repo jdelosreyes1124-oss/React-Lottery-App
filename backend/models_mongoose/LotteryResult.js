@@ -5,6 +5,10 @@ if (mongoose.models.LotteryResult) {
   module.exports = mongoose.models.LotteryResult;
 } else {
   const lotteryResultSchema = new mongoose.Schema({
+    _id: {
+      type: mongoose.Schema.Types.ObjectId,
+      auto: true
+    },
     gameType: { 
       type: String, 
       enum: ['539', 'mark6', 'lotto649'], 
