@@ -9,9 +9,56 @@ const puppeteer = require('puppeteer');
 class LotteryScraperService {
   constructor() {
     this.baseUrl = 'https://en.lottolyzer.com/history/taiwan/daily-cash-539/page/PAGE_NUM/per-page/50/summary-view';
+    this.latestUrl = 'https://en.lottolyzer.com/history/taiwan/daily-cash-539/summary-view';
     this.timeout = 60000;
     this.headless = true;
     this.maxPages = 102;
+  }
+
+  async scrapeLatestResults() {
+    console.log('🔍 Starting scraper for latest results...');
+    let browser = null;
+    
+    try {
+      browser = await this.launchBrowser();
+      const page = await this.createPage(browser);
+      
+      // Navigate to latest results page
+      await page.goto(this.latestUrl, { waitUntil: 'networkidle0', timeout: this.timeout });
+      console.log('📄 Loaded latest results page');
+
+      // Wait for results table
+      await page.waitForSelector('table.history-table', { timeout: this.timeout });
+
+      // Extract first row data
+      const latestResult = await page.evaluate(() => {
+        const rows = document.querySelectorAll('table.history-table tbody tr');
+        if (rows.length === 0) return null;
+
+        const firstRow = rows[0];
+        const cells = firstRow.querySelectorAll('td');
+        
+        return {
+          drawDate: cells[0].innerText.trim(),
+          numbers: Array.from(cells[1].querySelectorAll('.number')).map(n => parseInt(n.innerText.trim())).filter(n => !isNaN(n))
+        };
+      });
+
+      if (!latestResult) {
+        throw new Error('No results found on the page');
+      }
+
+      console.log('✅ Scraped latest result:', latestResult);
+      return [latestResult];
+    } catch (error) {
+      console.error('❌ Scraping error:', error);
+      throw error;
+    } finally {
+      if (browser) {
+        await browser.close();
+        console.log('🔒 Browser closed');
+      }
+    }
   }
 
   async scrapeResults(maxResults = 50) {
@@ -330,6 +377,10 @@ class LotteryScraperService {
 const scraperInstance = new LotteryScraperService();
 
 // Export as object with methods (compatible with other scrapers)
+module.exports = {
+  scrapeLatestResults: () => scraperInstance.scrapeLatestResults(),
+  scrapeResults: (maxResults) => scraperInstance.scrapeResults(maxResults)
+};
 module.exports = {
   scrapeResults: (maxResults) => scraperInstance.scrapeResults(maxResults),
   validateResults: (results) => scraperInstance.validateResults(results),
