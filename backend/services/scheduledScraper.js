@@ -12,9 +12,15 @@ const fs = require('fs');
 const path = require('path');
 
 // Scraper imports
-const scraper539 = require('./scraper');
+const scraper539 = require('./scraper539');
 const scraperMark6 = require('./scraperMark6');
 const scraperLotto649 = require('./scraperLotto649');
+
+console.log('✅ Scrapers loaded:', {
+    '539': !!scraper539?.scrapeLatestResults,
+    'mark6': !!scraperMark6?.scrapeLatestResults,
+    'lotto649': !!scraperLotto649?.scrapeLatestResults
+});
 
 // Backup configuration (now exports from MongoDB to Excel)
 const BACKUP_DIR = path.join(__dirname, '../backups');
