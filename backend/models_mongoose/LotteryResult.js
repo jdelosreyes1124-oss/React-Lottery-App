@@ -5,7 +5,7 @@ if (mongoose.models.LotteryResult) {
   module.exports = mongoose.models.LotteryResult;
 } else {
   const lotteryResultSchema = new mongoose.Schema({
-    _id: Number,
+    _id: { type: Number },
     gameType: { 
       type: String, 
       enum: ['539', 'mark6', 'lotto649'], 
