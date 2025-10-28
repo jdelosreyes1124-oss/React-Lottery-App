@@ -4,10 +4,8 @@ const mongoose = require('mongoose');
 if (mongoose.models.LotteryResult) {
   module.exports = mongoose.models.LotteryResult;
 } else {
-  const AutoIncrement = require('mongoose-sequence')(mongoose);
-  
   const lotteryResultSchema = new mongoose.Schema({
-    _id: { type: Number },
+    _id: Number,
     gameType: { 
       type: String, 
       enum: ['539', 'mark6', 'lotto649'], 
@@ -19,7 +17,12 @@ if (mongoose.models.LotteryResult) {
     },
     numbers: {
       type: [Number],
-      required: true
+      required: true,
+      validate: {
+        validator: function(v) {
+          return Array.isArray(v) && v.length > 0;
+        }
+      }
     },
     bonus: {
       type: Number,
@@ -42,15 +45,22 @@ if (mongoose.models.LotteryResult) {
     collection: 'lottery_results'
   });
 
-  // Add index
   // Add indexes
   lotteryResultSchema.index({ gameType: 1, drawDate: -1 });
-  
-  // Add auto-increment plugin
-  lotteryResultSchema.plugin(AutoIncrement, {
-    id: 'lottery_result_seq',
-    inc_field: '_id',
-    start_seq: 10011 // Start from next number after your last ID (10010)
+
+  // Pre-save middleware to auto-generate _id
+  lotteryResultSchema.pre('save', async function(next) {
+    if (!this._id) {
+      try {
+        const lastDoc = await this.constructor.findOne({}, { _id: 1 }).sort({ _id: -1 });
+        this._id = lastDoc ? lastDoc._id + 1 : 10011; // Start from 10011 if no documents exist
+        next();
+      } catch (error) {
+        next(error);
+      }
+    } else {
+      next();
+    }
   });
 
   module.exports = mongoose.model('LotteryResult', lotteryResultSchema);
