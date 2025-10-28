@@ -4,19 +4,22 @@ services:
     env: node
     buildCommand: |
       cd backend && \
-      mkdir -p ~/.cache/puppeteer && \
-      chmod -R 777 ~/.cache/puppeteer && \
+      export PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true && \
+      apt-get update && \
+      apt-get install -y chromium chromium-sandbox && \
       npm install && \
-      npx puppeteer browsers install chrome && \
-      ls -la ~/.cache/puppeteer
+      mkdir -p /opt/render/.cache && \
+      chmod -R 777 /opt/render/.cache
     startCommand: cd backend && node server.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: RENDER
         value: "true"
-      - key: PUPPETEER_CACHE_DIR
-        value: /home/render/.cache/puppeteer
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: /usr/bin/chromium
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: "true"
     buildFilter:
       paths:
       - backend/**/*

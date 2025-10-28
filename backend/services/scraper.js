@@ -5,8 +5,6 @@
  */
 
 const puppeteer = require('puppeteer');
-const os = require('os');
-const path = require('path');
 
 class LotteryScraperService {
   constructor() {
@@ -15,11 +13,6 @@ class LotteryScraperService {
     this.timeout = 60000;
     this.headless = "new";
     this.maxPages = 102;
-    
-    // Configure cache directory for Render.com
-    if (process.env.RENDER) {
-      process.env.PUPPETEER_CACHE_DIR = path.join(os.homedir(), '.cache', 'puppeteer');
-    }
   }
 
   async scrapeLatestResults() {
@@ -99,20 +92,16 @@ class LotteryScraperService {
       '--disable-gpu',
       '--no-first-run',
       '--no-zygote',
-      '--deterministic-fetch',
-      '--disable-features=site-per-process',
-      '--disable-accelerated-2d-canvas',
-      '--disable-gpu-sandbox',
       '--single-process'
     ];
     
     try {
       console.log('🔍 Launching browser...');
-      console.log('Cache directory:', process.env.PUPPETEER_CACHE_DIR || '(default)');
       
       const options = {
         headless: "new",
         args: minimal_args,
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
         ignoreHTTPSErrors: true,
         defaultViewport: {
           width: 1920,
@@ -120,42 +109,24 @@ class LotteryScraperService {
         }
       };
 
-      // Check if browser is installed
-      try {
-        await require('child_process').execSync('npx puppeteer browsers install chrome', { stdio: 'inherit' });
-      } catch (err) {
-        console.log('Browser installation check failed:', err.message);
-      }
+      console.log('🔧 Browser options:', {
+        executablePath: options.executablePath || '(default)',
+        headless: options.headless,
+        args: options.args
+      });
 
       const browser = await puppeteer.launch(options);
       const version = await browser.version();
       console.log('✅ Browser launched successfully:', version);
-      
-      // Log some debug info
-      const pages = await browser.pages();
-      console.log(`Initial pages: ${pages.length}`);
-      
       return browser;
     } catch (error) {
       console.error('❌ Failed to launch browser:', error);
       console.error('Environment:', {
         RENDER: process.env.RENDER,
         NODE_ENV: process.env.NODE_ENV,
-        PUPPETEER_CACHE_DIR: process.env.PUPPETEER_CACHE_DIR,
-        cwd: process.cwd(),
-        platform: process.platform,
-        arch: process.arch
+        PUPPETEER_EXECUTABLE_PATH: process.env.PUPPETEER_EXECUTABLE_PATH,
+        cwd: process.cwd()
       });
-      
-      // Try to list cache directory contents
-      try {
-        const cacheDir = process.env.PUPPETEER_CACHE_DIR || path.join(os.homedir(), '.cache', 'puppeteer');
-        const files = require('fs').readdirSync(cacheDir);
-        console.log('Cache directory contents:', files);
-      } catch (err) {
-        console.error('Could not list cache directory:', err.message);
-      }
-      
       throw error;
     }
   }
