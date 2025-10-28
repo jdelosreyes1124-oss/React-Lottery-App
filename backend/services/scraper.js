@@ -4,6 +4,7 @@
  * services/scraper.js
  */
 
+// Use puppeteer-core for Render.com deployment
 const puppeteer = require('puppeteer');
 
 class LotteryScraperService {
@@ -11,7 +12,7 @@ class LotteryScraperService {
     this.baseUrl = 'https://en.lottolyzer.com/history/taiwan/daily-cash-539/page/PAGE_NUM/per-page/50/summary-view';
     this.latestUrl = 'https://en.lottolyzer.com/history/taiwan/daily-cash-539/summary-view';
     this.timeout = 60000;
-    this.headless = true;
+    this.headless = "new";
     this.maxPages = 102;
   }
 
@@ -85,51 +86,68 @@ class LotteryScraperService {
   }
 
   async launchBrowser() {
-    const args = [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
+    const minimal_args = [
+      '--autoplay-policy=user-gesture-required',
+      '--disable-background-networking',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-breakpad',
+      '--disable-client-side-phishing-detection',
+      '--disable-component-update',
+      '--disable-default-apps',
       '--disable-dev-shm-usage',
-      '--disable-gpu',
+      '--disable-domain-reliability',
+      '--disable-extensions',
+      '--disable-features=AudioServiceOutOfProcess',
+      '--disable-hang-monitor',
+      '--disable-ipc-flooding-protection',
+      '--disable-notifications',
+      '--disable-offer-store-unmasked-wallet-cards',
+      '--disable-popup-blocking',
+      '--disable-print-preview',
+      '--disable-prompt-on-repost',
+      '--disable-renderer-backgrounding',
+      '--disable-setuid-sandbox',
+      '--disable-speech-api',
+      '--disable-sync',
+      '--hide-scrollbars',
+      '--ignore-gpu-blacklist',
+      '--metrics-recording-only',
+      '--mute-audio',
+      '--no-default-browser-check',
       '--no-first-run',
+      '--no-pings',
+      '--no-sandbox',
       '--no-zygote',
-      '--single-process',
-      '--disable-extensions'
+      '--password-store=basic',
+      '--use-gl=swiftshader',
+      '--use-mock-keychain',
     ];
     
-    let options = {
-      headless: "new",
-      args: args
-    };
-
-    // Special handling for Render.com environment
-    if (process.env.RENDER) {
-      options = {
-        ...options,
-        executablePath: '/usr/bin/google-chrome-stable',
-        args: [
-          ...args,
-          '--disable-dev-tools'
-        ]
-      };
-    }
-    
     try {
-      console.log('🔍 Launching browser with options:', {
-        headless: options.headless,
-        executablePath: options.executablePath || '(default)',
-        args: options.args,
-        isRender: !!process.env.RENDER
-      });
+      console.log('🔍 Launching browser...');
       
+      const options = {
+        headless: this.headless,
+        args: minimal_args,
+        ignoreHTTPSErrors: true,
+        defaultViewport: {
+          width: 1920,
+          height: 1080
+        }
+      };
+
       const browser = await puppeteer.launch(options);
-      console.log('✅ Browser launched successfully');
+      const version = await browser.version();
+      console.log('✅ Browser launched successfully:', version);
       return browser;
     } catch (error) {
       console.error('❌ Failed to launch browser:', error);
+      console.error('Current working directory:', process.cwd());
       console.error('Environment:', {
         RENDER: process.env.RENDER,
         NODE_ENV: process.env.NODE_ENV,
-        PUPPETEER_EXECUTABLE_PATH: process.env.PUPPETEER_EXECUTABLE_PATH
+        PATH: process.env.PATH
       });
       throw error;
     }
