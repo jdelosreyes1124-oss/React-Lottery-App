@@ -597,13 +597,24 @@ async function triggerScrape(gameType) {
     switch (gameType) {
       case '539':
         try {
+          console.log('🔄 Starting 539 scraper...');
+          
+          if (!scraper539.scrapeLatestResults) {
+            throw new Error('Scraper not properly initialized');
+          }
+          
           results = await scraper539.scrapeLatestResults();
-          console.log('✅ Scraping completed:', results);
+          console.log('📊 Scraping completed:', results);
           
           // Save results to database
           if (results && results.length > 0) {
             const result = results[0];
             const { drawDate, numbers } = result;
+            
+            // Validate result data
+            if (!drawDate || !numbers || numbers.length !== 5) {
+              throw new Error('Invalid scraped data format');
+            }
             
             // Find the highest numeric _id
             const lastResult = await db.LotteryResult.findOne({
@@ -636,11 +647,17 @@ async function triggerScrape(gameType) {
             
             await newResult.save();
             console.log('✅ Saved new result with ID:', nextId);
+            
+            // Update scheduler state
+            schedulerState[gameType].lastRun = new Date();
+            schedulerState[gameType].status = 'success';
           } else {
             throw new Error('No results returned from scraper');
           }
         } catch (error) {
           console.error('❌ Error during 539 scraping/saving:', error);
+          schedulerState[gameType].status = 'error';
+          schedulerState[gameType].lastError = error.message;
           throw error;
         }
         break;
