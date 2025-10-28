@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-const Counter = require('./Counter');
 
 // Check if model already exists to prevent re-registration
 if (mongoose.models.LotteryResult) {
@@ -49,30 +48,51 @@ if (mongoose.models.LotteryResult) {
   // Add indexes
   lotteryResultSchema.index({ gameType: 1, drawDate: -1 });
 
-  // Function to get next sequence
-  async function getNextSequence(name) {
-    try {
-      const counter = await Counter.findByIdAndUpdate(
-        name,
-        { $inc: { seq: 1 } },
-        { new: true, upsert: true }
-      );
-      return counter.seq;
-    } catch (error) {
-      console.error('Error getting next sequence:', error);
-      throw error;
+  // Initialize sequence if needed
+  async function initializeSequence() {
+    const db = mongoose.connection.db;
+    const collection = db.collection('lottery_results');
+    
+    // Check if counters collection exists
+    const countersColl = db.collection('counters');
+    const counter = await countersColl.findOne({ _id: 'lottery_results' });
+    
+    if (!counter) {
+      // Find the highest _id
+      const lastDoc = await collection.findOne({}, { sort: { _id: -1 } });
+      const startSeq = lastDoc ? lastDoc._id + 1 : 10011;
+      
+      // Create counter
+      await countersColl.insertOne({
+        _id: 'lottery_results',
+        seq: startSeq
+      });
     }
   }
 
-  // Pre-save middleware to auto-generate _id
+  // Call initialization when model is created
+  mongoose.connection.once('connected', () => {
+    initializeSequence().catch(console.error);
+  });
+
+  // Pre-save middleware to get next sequence
   lotteryResultSchema.pre('save', async function(next) {
-    try {
-      if (!this._id) {
-        this._id = await getNextSequence('lotteryResultId');
+    if (!this._id) {
+      try {
+        const db = mongoose.connection.db;
+        const result = await db.collection('counters').findOneAndUpdate(
+          { _id: 'lottery_results' },
+          { $inc: { seq: 1 } },
+          { returnDocument: 'after', upsert: true }
+        );
+        this._id = result.value.seq;
+        next();
+      } catch (error) {
+        console.error('Error generating sequence:', error);
+        next(error);
       }
+    } else {
       next();
-    } catch (error) {
-      next(error);
     }
   });
 
