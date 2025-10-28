@@ -597,10 +597,12 @@ async function triggerScrape(gameType) {
     switch (gameType) {
       case '539':
         try {
-          console.log('🔄 Starting 539 scraper...');
+          console.log('🎲 Starting 539 scraper...');
           
-          if (!scraper539.scrapeLatestResults) {
-            throw new Error('Scraper not properly initialized');
+          // Verify scraper is properly initialized with required methods
+          if (!scraper539 || typeof scraper539.scrapeLatestResults !== 'function') {
+            console.error('❌ Scraper initialization error:', scraper539);
+            throw new Error('539 scraper not properly initialized');
           }
           
           results = await scraper539.scrapeLatestResults();

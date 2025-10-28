@@ -373,8 +373,8 @@ class LotteryScraperService {
   }
 }
 
-// Create and export the scraper
-module.exports = {
+// Create the base scraper instance
+const baseScraper = {
     async scrapeLatestResults() {
         console.log('🔍 Starting scraper for latest results...');
         let browser = null;
@@ -458,6 +458,18 @@ module.exports = {
     latestUrl: 'https://en.lottolyzer.com/history/taiwan/daily-cash-539/summary-view',
     timeout: 60000,
     maxPages: 102
+};
+
+// Export a factory function that creates a configured scraper
+module.exports = function createScraper() {
+    return {
+        ...baseScraper,
+        // Allow configuration override if needed
+        configure(config) {
+            Object.assign(this, config);
+            return this;
+        }
+    };
 };
 module.exports = {
   scrapeResults: (maxResults) => scraperInstance.scrapeResults(maxResults),
