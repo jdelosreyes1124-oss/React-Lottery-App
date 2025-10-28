@@ -15,7 +15,8 @@ const db = require('./models_mongoose');
 const predictionRoutes = require('./routes/predictions');
 const adminRoutes = require('./routes/admin');
 const authRoutes = require('./routes/auth');
-const historicalResultsRoutes = require('./routes/historicalResults'); // THIS WAS MISSING!
+const historicalResultsRoutes = require('./routes/historicalResults');
+const schedulerRoutes = require('./routes/scheduler');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -174,6 +175,10 @@ console.log('✅ Historical Results routes loaded - handles /api/admin/historica
 // Make sure the conflicting POST route is commented out in admin.js
 app.use('/api/admin', adminRoutes);
 console.log('✅ Admin routes loaded - conflicting POST route should be commented out');
+
+// Scheduler routes for web scraping
+app.use('/api/admin', schedulerRoutes);
+console.log('✅ Scheduler routes loaded - handles /api/admin/scheduler/*');
 
 // Debug route to verify historicalResults routes are loaded
 app.get('/api/admin/test-historical', (req, res) => {

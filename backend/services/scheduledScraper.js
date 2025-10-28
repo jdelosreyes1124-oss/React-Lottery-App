@@ -28,6 +28,9 @@ const BACKUP_CONFIG = {
 const schedulerState = {
   '539': {
     enabled: false,
+    lastRun: null,
+    nextRun: null,
+    status: 'stopped',
     schedule: '0 */6 * * *',
     lastRun: null,
     nextRun: null,
@@ -563,6 +566,67 @@ const SCHEDULE_PRESETS = {
   'twice-daily': '0 0,12 * * *'
 };
 
+// Public API methods for scheduler routes
+function getStatus(gameType) {
+  if (!schedulerState[gameType]) {
+    throw new Error(`Invalid game type: ${gameType}`);
+  }
+  return {
+    ...schedulerState[gameType],
+    lastRun: schedulerState[gameType].lastRun,
+    nextRun: schedulerState[gameType].nextRun,
+    status: schedulerState[gameType].status
+  };
+}
+
+async function triggerScrape(gameType) {
+  if (!schedulerState[gameType]) {
+    throw new Error(`Invalid game type: ${gameType}`);
+  }
+
+  try {
+    schedulerState[gameType].status = 'running';
+    let results;
+    
+    switch (gameType) {
+      case '539':
+        results = await scraper539.scrapeLatestResults();
+        break;
+      case 'mark6':
+        results = await scraperMark6.scrapeLatestResults();
+        break;
+      case 'lotto649':
+        results = await scraperLotto649.scrapeLatestResults();
+        break;
+      default:
+        throw new Error(`Unsupported game type: ${gameType}`);
+    }
+
+    schedulerState[gameType].lastRun = new Date();
+    schedulerState[gameType].status = 'success';
+    return results;
+  } catch (error) {
+    schedulerState[gameType].status = 'error';
+    throw error;
+  }
+}
+
+function enableScheduler(gameType) {
+  if (!schedulerState[gameType]) {
+    throw new Error(`Invalid game type: ${gameType}`);
+  }
+  schedulerState[gameType].enabled = true;
+  schedulerState[gameType].status = 'enabled';
+}
+
+function disableScheduler(gameType) {
+  if (!schedulerState[gameType]) {
+    throw new Error(`Invalid game type: ${gameType}`);
+  }
+  schedulerState[gameType].enabled = false;
+  schedulerState[gameType].status = 'disabled';
+}
+
 module.exports = {
   startScheduler,
   stopScheduler,
@@ -570,6 +634,11 @@ module.exports = {
   triggerManualScrape,
   exportToExcel,
   createBackup,
+  // New exports for scheduler routes
+  getStatus,
+  triggerScrape,
+  enableScheduler,
+  disableScheduler,
   cleanupOldBackups,
   SCHEDULE_PRESETS
 };
