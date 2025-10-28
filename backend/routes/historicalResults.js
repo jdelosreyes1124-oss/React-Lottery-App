@@ -401,12 +401,15 @@ router.post('/historical-results/539/add', async (req, res) => {
       });
     }
 
-    // Find the highest _id to generate the next one
-    const lastResult = await LotteryResult.findOne({})
-      .sort({ _id: -1 })
-      .lean();
-      
+    // Find the highest numeric _id to generate the next one
+    const lastResult = await LotteryResult.findOne({
+      _id: { $type: "number" }
+    })
+    .sort({ _id: -1 })
+    .lean();
+    
     const nextId = (lastResult?._id || 10010) + 1;
+    console.log('[ADD] Last numeric ID:', lastResult?._id);
     console.log('[ADD] Generating next ID:', nextId);
 
     // Create new result with generated ID

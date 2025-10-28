@@ -5,7 +5,16 @@ if (mongoose.models.LotteryResult) {
   module.exports = mongoose.models.LotteryResult;
 } else {
   const lotteryResultSchema = new mongoose.Schema({
-    _id: { type: Number },
+    _id: {
+      type: Number,
+      required: true,
+      validate: {
+        validator: function(v) {
+          return Number.isInteger(v) && v > 0;
+        },
+        message: 'ID must be a positive integer'
+      }
+    },
     gameType: { 
       type: String, 
       enum: ['539', 'mark6', 'lotto649'], 
