@@ -1,9 +1,7 @@
 const express = require('express');
-const XLSX = require('xlsx');
-const fs = require('fs');
-const path = require('path');
 const mongoose = require('mongoose');
 const { ObjectId } = require('mongoose').Types;
+const LotteryResult = require('../models_mongoose/LotteryResult');
 
 console.log('[INFO] Historical Results routes loaded!');
 
@@ -301,44 +299,41 @@ async function syncRecordToMongoDB(record) {
   }
 }
 
-// GET /api/admin/historical-results/539 - IMPROVED VERSION
+// GET /api/admin/historical-results/539
 router.get('/historical-results/539', async (req, res) => {
   try {
-    console.log('[GET] Loading results...');
+    console.log('[GET] Loading results from MongoDB...');
     
-    // Always sync first if MongoDB is available
-    if (isMongoDBAvailable()) {
-      console.log('[GET] Syncing MongoDB with Excel first...');
-      const syncResult = await syncMongoDBWithExcel();
-      if (syncResult.success) {
-        console.log(`[GET] Sync complete: MongoDB now matches Excel`);
-      }
-    }
+    const results = await LotteryResult.find({ gameType: '539' })
+      .sort({ drawDate: -1 })
+      .lean();
     
-    // Always return Excel data as source of truth
-    const results = readExcelFile();
+    const formattedResults = results.map((result, index) => ({
+      id: index,
+      drawDate: result.drawDate.toLocaleDateString('en-US'),
+      numbers: result.numbers
+    }));
     
-    console.log(`[GET] Returning ${results.length} results from Excel`);
+    console.log(`[GET] Returning ${results.length} results from MongoDB`);
     
     res.json({
       success: true,
-      results: results,
-      total: results.length,
-      source: 'excel'  // Always Excel as source of truth
+      results: formattedResults,
+      total: formattedResults.length
     });
     
   } catch (error) {
     console.error('[GET] Error:', error);
-    res.json({ 
-      success: true, 
+    res.status(500).json({ 
+      success: false, 
       results: [],
       total: 0,
-      message: 'No results found'
+      message: error.message
     });
   }
 });
 
-// POST /api/admin/historical-results/539/add - HYBRID APPROACH
+// POST /api/admin/historical-results/539/add
 router.post('/historical-results/539/add', async (req, res) => {
   console.log('[POST] Add request received');
   console.log('[INFO] Request body:', JSON.stringify(req.body, null, 2));
@@ -385,79 +380,56 @@ router.post('/historical-results/539/add', async (req, res) => {
     }
     
     const sortedNumbers = parsedNumbers.sort((a, b) => a - b);
-    const formattedDate = formatDateString(parseDate(drawDate));
+    const parsedDate = new Date(drawDate);
     
-    // STEP 1: Always save to Excel first (this works reliably)
-    console.log('[INFO] Saving to Excel first...');
-    
-    const currentData = readExcelFile();
-    
-    // Check for existing in Excel
-    const exists = currentData.some(row => 
-      formatDateString(row.drawDate) === formattedDate
-    );
-    
-    if (exists) {
+    // Check for existing record
+    const existingResult = await LotteryResult.findOne({
+      gameType: '539',
+      drawDate: {
+        $gte: new Date(parsedDate.setHours(0, 0, 0, 0)),
+        $lte: new Date(parsedDate.setHours(23, 59, 59, 999))
+      }
+    });
+
+    if (existingResult) {
       return res.status(400).json({
         success: false,
-        error: `Result for ${formattedDate} already exists`
+        error: `Result for ${parsedDate.toLocaleDateString('en-US')} already exists`
       });
     }
-    
-    // Add new result to Excel
-    const newResult = {
-      id: 0,
-      drawDate: formattedDate,
-      numbers: sortedNumbers
-    };
-    
-    currentData.unshift(newResult);
-    
-    // Re-index
-    currentData.forEach((row, idx) => {
-      row.id = idx;
+
+    // Create new result
+    const newResult = new LotteryResult({
+      gameType: '539',
+      drawDate: parsedDate,
+      numbers: sortedNumbers,
+      source: 'admin'
     });
+
+    await newResult.save();
     
-    // Save to Excel
-    if (!writeExcelFile(currentData)) {
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to save data'
-      });
-    }
-    
-    console.log('[SUCCESS] Saved to Excel');
-    
-    // STEP 2: Try to sync to MongoDB in the background (non-blocking)
-    let mongoId = null;
-    
-    if (isMongoDBAvailable()) {
-      console.log('[INFO] Attempting background sync to MongoDB...');
-      
-      // Don't await - let it happen in background
-      syncRecordToMongoDB(newResult).then(id => {
-        if (id) {
-          console.log('[BACKGROUND] Successfully synced to MongoDB:', id);
-        } else {
-          console.log('[BACKGROUND] MongoDB sync failed, but data is safe in Excel');
-        }
-      }).catch(err => {
-        console.error('[BACKGROUND] MongoDB sync error:', err.message);
-      });
-    }
-    
-    // Return success immediately (Excel save was successful)
+    // Get updated results
+    const allResults = await LotteryResult.find({ gameType: '539' })
+      .sort({ drawDate: -1 })
+      .lean();
+
+    const formattedResults = allResults.map((result, index) => ({
+      id: index,
+      drawDate: result.drawDate.toLocaleDateString('en-US'),
+      numbers: result.numbers
+    }));
+
     res.json({
       success: true,
-      message: 'Result added successfully (saved to Excel, syncing to cloud)',
+      message: 'Result added successfully',
       result: {
-        _id: mongoId,
+        _id: newResult._id,
         id: 0,
-        drawDate: formattedDate,
+        drawDate: parsedDate.toLocaleDateString('en-US'),
         numbers: sortedNumbers
       },
-      results: currentData,
-      total: currentData.length
+      results: formattedResults,
+      total: formattedResults.length
     });
     
   } catch (error) {
@@ -475,29 +447,28 @@ router.delete('/historical-results/539/:id', async (req, res) => {
   try {
     const { id } = req.params;
     console.log(`[DELETE] Delete request for ID: ${id}`);
+
+    let deletedResult;
     
-    // STEP 1: Sync MongoDB with Excel first (remove orphaned records)
-    if (isMongoDBAvailable()) {
-      console.log('[DELETE] Syncing MongoDB with Excel before delete...');
-      const syncResult = await syncMongoDBWithExcel();
-      if (syncResult.success) {
-        console.log(`[DELETE] Sync complete: ${syncResult.deleted} removed, ${syncResult.added} added`);
+    // Handle both index-based and MongoDB ObjectId-based deletion
+    if (id.match(/^[0-9a-fA-F]{24}$/)) {
+      // MongoDB ObjectId
+      deletedResult = await LotteryResult.findByIdAndDelete(id);
+    } else {
+      // Index-based deletion
+      const allResults = await LotteryResult.find({ gameType: '539' })
+        .sort({ drawDate: -1 });
+      
+      const index = parseInt(id);
+      if (isNaN(index) || index < 0 || index >= allResults.length) {
+        return res.status(404).json({
+          success: false,
+          error: 'Result not found'
+        });
       }
+      
+      deletedResult = await LotteryResult.findByIdAndDelete(allResults[index]._id);
     }
-    
-    // STEP 2: Read current Excel data (source of truth)
-    const currentData = readExcelFile();
-    
-    if (!currentData || currentData.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'No data found'
-      });
-    }
-    
-    let deleted = false;
-    let itemToDelete = null;
-    let deleteIndex = -1;
     
     // STEP 3: Determine what to delete
     // Handle MongoDB ObjectId format
@@ -590,14 +561,34 @@ router.delete('/historical-results/539/:id', async (req, res) => {
     
     console.log(`[DELETE] Operation complete. Remaining records: ${finalData.length}`);
     
-    // STEP 8: Return the updated data
+    if (!deletedResult) {
+      return res.status(404).json({
+        success: false,
+        error: 'Result not found'
+      });
+    }
+
+    // Get updated results
+    const updatedResults = await LotteryResult.find({ gameType: '539' })
+      .sort({ drawDate: -1 })
+      .lean();
+
+    const formattedResults = updatedResults.map((result, index) => ({
+      id: index,
+      drawDate: result.drawDate.toLocaleDateString('en-US'),
+      numbers: result.numbers
+    }));
+
     res.json({
       success: true,
       message: 'Result deleted successfully',
-      deletedItem: itemToDelete,
-      results: finalData,  // Return Excel data as source of truth
-      total: finalData.length,
-      source: 'excel'  // Indicate data source
+      deletedItem: {
+        id: id,
+        drawDate: deletedResult.drawDate.toLocaleDateString('en-US'),
+        numbers: deletedResult.numbers
+      },
+      results: formattedResults,
+      total: formattedResults.length
     });
     
   } catch (error) {
