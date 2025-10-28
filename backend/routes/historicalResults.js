@@ -304,12 +304,18 @@ router.get('/historical-results/539', async (req, res) => {
     const results = await LotteryResult.find({ gameType: '539' })
       .sort({ drawDate: -1 })
       .lean();
+      
+    console.log('[GET] Sample result:', JSON.stringify(results[0], null, 2));
     
-    const formattedResults = results.map((result, index) => ({
-      id: index,
-      drawDate: result.drawDate.toLocaleDateString('en-US'),
-      numbers: result.numbers
-    }));
+    const formattedResults = results.map((result, index) => {
+      // Ensure drawDate is a proper Date object
+      const date = new Date(result.drawDate);
+      return {
+        id: index,
+        drawDate: date.toLocaleDateString('en-US'),
+        numbers: result.numbers
+      };
+    });
     
     console.log(`[GET] Returning ${results.length} results from MongoDB`);
     
@@ -581,7 +587,7 @@ router.delete('/historical-results/539/:id', async (req, res) => {
       message: 'Result deleted successfully',
       deletedItem: {
         id: id,
-        drawDate: deletedResult.drawDate.toLocaleDateString('en-US'),
+        drawDate: new Date(deletedResult.drawDate).toLocaleDateString('en-US'),
         numbers: deletedResult.numbers
       },
       results: formattedResults,
