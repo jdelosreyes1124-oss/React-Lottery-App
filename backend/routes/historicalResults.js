@@ -401,16 +401,8 @@ router.post('/historical-results/539/add', async (req, res) => {
       });
     }
 
-    // Generate a new ID by finding the highest existing ID
-    const lastResult = await LotteryResult.findOne({})
-      .sort({ _id: -1 })
-      .lean();
-    
-    const nextId = (lastResult?._id || 0) + 1;
-
-    // Create new result
+    // Create new result with auto-generated ObjectId
     const newResult = new LotteryResult({
-      _id: nextId,
       gameType: '539',
       drawDate: parsedDate,
       numbers: sortedNumbers,
