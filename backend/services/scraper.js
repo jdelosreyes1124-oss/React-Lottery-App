@@ -373,106 +373,14 @@ class LotteryScraperService {
   }
 }
 
-// Create the base scraper instance
-const baseScraper = {
-    async scrapeLatestResults() {
-        console.log('🔍 Starting scraper for latest results...');
-        let browser = null;
-        
-        try {
-            browser = await this.launchBrowser();
-            const page = await this.createPage(browser);
-            
-            // Navigate to latest results page
-            await page.goto(this.latestUrl, { waitUntil: 'networkidle0', timeout: this.timeout });
-            console.log('📄 Loaded latest results page');
+// Create a singleton instance
+const scraperInstance = new LotteryScraperService();
 
-            // Wait for results table
-            await page.waitForSelector('table.history-table', { timeout: this.timeout });
-
-            // Extract first row data
-            const latestResult = await page.evaluate(() => {
-                const rows = document.querySelectorAll('table.history-table tbody tr');
-                if (rows.length === 0) return null;
-
-                const firstRow = rows[0];
-                const cells = firstRow.querySelectorAll('td');
-                
-                return {
-                    drawDate: cells[0].innerText.trim(),
-                    numbers: Array.from(cells[1].querySelectorAll('.number')).map(n => parseInt(n.innerText.trim())).filter(n => !isNaN(n))
-                };
-            });
-
-            if (!latestResult) {
-                throw new Error('No results found on the page');
-            }
-
-            console.log('✅ Scraped latest result:', latestResult);
-            return [latestResult];
-        } catch (error) {
-            console.error('❌ Scraping error:', error);
-            throw error;
-        } finally {
-            if (browser) {
-                await browser.close();
-                console.log('🔒 Browser closed');
-            }
-        }
-    },
-
-    async scrapeResults(maxResults) {
-        return new LotteryScraperService().scrapeResults(maxResults);
-    },
-
-    // Browser methods
-    async launchBrowser() {
-        const args = [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-extensions'
-        ];
-        
-        // For production (Render), use system Chrome
-        const options = {
-            headless: true,
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || 'google-chrome-stable',
-            args
-        };
-        
-        return await puppeteer.launch(options);
-    },
-
-    async createPage(browser) {
-        const page = await browser.newPage();
-        await page.setViewport({ width: 1366, height: 768 });
-        return page;
-    },
-
-    // Configuration
-    baseUrl: 'https://en.lottolyzer.com/history/taiwan/daily-cash-539/page/PAGE_NUM/per-page/50/summary-view',
-    latestUrl: 'https://en.lottolyzer.com/history/taiwan/daily-cash-539/summary-view',
-    timeout: 60000,
-    maxPages: 102
-};
-
-// Export a factory function that creates a configured scraper
-module.exports = function createScraper() {
-    return {
-        ...baseScraper,
-        // Allow configuration override if needed
-        configure(config) {
-            Object.assign(this, config);
-            return this;
-        }
-    };
-};
+// Export the class and a singleton instance
 module.exports = {
+  LotteryScraperService,
   scrapeResults: (maxResults) => scraperInstance.scrapeResults(maxResults),
+  scrapeLatestResults: () => scraperInstance.scrapeLatestResults(),
   validateResults: (results) => scraperInstance.validateResults(results),
   debugScrape: (maxResults) => scraperInstance.debugScrape(maxResults),
   debugPage1: () => scraperInstance.debugPage1()
