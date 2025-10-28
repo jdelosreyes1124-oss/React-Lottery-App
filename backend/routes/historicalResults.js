@@ -7,9 +7,6 @@ console.log('[INFO] Historical Results routes loaded!');
 
 const router = express.Router();
 
-// Path to the 539 Excel file 
-const EXCEL_539_PATH = path.join(__dirname, '../data/539PAST2025RESULT.xlsx');
-
 // Helper: Check if MongoDB is available
 function isMongoDBAvailable() {
   const isConnected = mongoose.connection && mongoose.connection.readyState === 1;
