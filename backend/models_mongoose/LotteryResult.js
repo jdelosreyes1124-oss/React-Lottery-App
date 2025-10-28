@@ -5,10 +5,6 @@ if (mongoose.models.LotteryResult) {
   module.exports = mongoose.models.LotteryResult;
 } else {
   const lotteryResultSchema = new mongoose.Schema({
-    _id: {
-      type: mongoose.Schema.Types.ObjectId,
-      auto: true
-    },
     gameType: { 
       type: String, 
       enum: ['539', 'mark6', 'lotto649'], 
@@ -46,14 +42,7 @@ if (mongoose.models.LotteryResult) {
   // Add index
   lotteryResultSchema.index({ gameType: 1, drawDate: -1 });
 
-  // IMPORTANT: Add this to prevent the _id error
-  lotteryResultSchema.pre('save', function(next) {
-    // Ensure _id exists before saving
-    if (!this._id) {
-      this._id = new mongoose.Types.ObjectId();
-    }
-    next();
-  });
+  // No pre-save hook needed - Mongoose handles _id automatically
 
   module.exports = mongoose.model('LotteryResult', lotteryResultSchema);
 }

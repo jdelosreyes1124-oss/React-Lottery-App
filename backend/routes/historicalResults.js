@@ -402,12 +402,14 @@ router.post('/historical-results/539/add', async (req, res) => {
     }
 
     // Create new result
-    const newResult = await LotteryResult.create({
+    const newResult = new LotteryResult({
       gameType: '539',
       drawDate: parsedDate,
       numbers: sortedNumbers,
       source: 'admin'
     });
+    
+    await newResult.save();
     
     // Get updated results
     const allResults = await LotteryResult.find({ gameType: '539' })
@@ -443,7 +445,7 @@ router.post('/historical-results/539/add', async (req, res) => {
   }
 });
 
-// DELETE /api/admin/historical-results/539/:id - IMPROVED VERSION WITH SYNC
+// DELETE /api/admin/historical-results/539/:id
 router.delete('/historical-results/539/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -470,98 +472,7 @@ router.delete('/historical-results/539/:id', async (req, res) => {
       
       deletedResult = await LotteryResult.findByIdAndDelete(allResults[index]._id);
     }
-    
-    // STEP 3: Determine what to delete
-    // Handle MongoDB ObjectId format
-    if (id.match(/^[0-9a-fA-F]{24}$/)) {
-      // This is a MongoDB ID, find the corresponding Excel entry
-      if (isMongoDBAvailable()) {
-        try {
-          const collection = mongoose.connection.db.collection('lottery_results');
-          const doc = await collection.findOne({ _id: new ObjectId(id) });
-          
-          if (doc) {
-            // Find matching Excel entry by date
-            deleteIndex = currentData.findIndex(row => {
-              const rowDate = formatDateString(row.drawDate);
-              const docDate = formatDateString(doc.drawDate);
-              return rowDate === docDate;
-            });
-            
-            if (deleteIndex !== -1) {
-              itemToDelete = currentData[deleteIndex];
-            }
-          }
-        } catch (err) {
-          console.log('[DELETE] Error finding MongoDB document:', err.message);
-        }
-      }
-    } else {
-      // This is a numeric index
-      deleteIndex = parseInt(id);
-      if (!isNaN(deleteIndex) && deleteIndex >= 0 && deleteIndex < currentData.length) {
-        itemToDelete = currentData[deleteIndex];
-      }
-    }
-    
-    // STEP 4: Validate we found something to delete
-    if (deleteIndex === -1 || !itemToDelete) {
-      return res.status(404).json({
-        success: false,
-        error: 'Result not found'
-      });
-    }
-    
-    // STEP 5: Delete from Excel first (source of truth)
-    currentData.splice(deleteIndex, 1);
-    console.log(`[DELETE] Removed from Excel at index: ${deleteIndex}`);
-    
-    // Re-index the remaining data
-    currentData.forEach((row, idx) => {
-      row.id = idx;
-    });
-    
-    // Save updated Excel file
-    if (!writeExcelFile(currentData)) {
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to save changes to Excel'
-      });
-    }
-    
-    deleted = true;
-    console.log('[DELETE] Excel file updated successfully');
-    
-    // STEP 6: Delete from MongoDB (if available)
-    if (isMongoDBAvailable() && itemToDelete) {
-      try {
-        const collection = mongoose.connection.db.collection('lottery_results');
-        const deleteDate = parseDate(itemToDelete.drawDate);
-        const startOfDay = new Date(deleteDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(deleteDate);
-        endOfDay.setHours(23, 59, 59, 999);
-        
-        const deleteResult = await collection.deleteMany({
-          gameType: '539',
-          drawDate: {
-            $gte: startOfDay,
-            $lte: endOfDay
-          }
-        });
-        
-        console.log(`[DELETE] Deleted ${deleteResult.deletedCount} record(s) from MongoDB`);
-      } catch (err) {
-        console.log('[DELETE] Warning: Could not delete from MongoDB:', err.message);
-        // Continue anyway - Excel is source of truth
-      }
-    }
-    
-    // STEP 7: Get fresh data for response (from Excel as source of truth)
-    const finalData = readExcelFile();
-    
-    console.log(`[DELETE] Operation complete. Remaining records: ${finalData.length}`);
-    
+
     if (!deletedResult) {
       return res.status(404).json({
         success: false,
@@ -569,10 +480,12 @@ router.delete('/historical-results/539/:id', async (req, res) => {
       });
     }
 
-    // Get updated results
+    // Get updated results after deletion
     const updatedResults = await LotteryResult.find({ gameType: '539' })
       .sort({ drawDate: -1 })
       .lean();
+
+    console.log(`[DELETE] Operation complete. Remaining records: ${updatedResults.length}`);
 
     const formattedResults = updatedResults.map((result, index) => ({
       id: index,
@@ -591,7 +504,6 @@ router.delete('/historical-results/539/:id', async (req, res) => {
       results: formattedResults,
       total: formattedResults.length
     });
-    
   } catch (error) {
     console.error('[DELETE] Error:', error);
     res.status(500).json({ 
