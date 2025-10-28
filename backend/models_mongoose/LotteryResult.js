@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const Counter = require('./Counter');
 
 // Check if model already exists to prevent re-registration
 if (mongoose.models.LotteryResult) {
@@ -48,18 +49,30 @@ if (mongoose.models.LotteryResult) {
   // Add indexes
   lotteryResultSchema.index({ gameType: 1, drawDate: -1 });
 
+  // Function to get next sequence
+  async function getNextSequence(name) {
+    try {
+      const counter = await Counter.findByIdAndUpdate(
+        name,
+        { $inc: { seq: 1 } },
+        { new: true, upsert: true }
+      );
+      return counter.seq;
+    } catch (error) {
+      console.error('Error getting next sequence:', error);
+      throw error;
+    }
+  }
+
   // Pre-save middleware to auto-generate _id
   lotteryResultSchema.pre('save', async function(next) {
-    if (!this._id) {
-      try {
-        const lastDoc = await this.constructor.findOne({}, { _id: 1 }).sort({ _id: -1 });
-        this._id = lastDoc ? lastDoc._id + 1 : 10011; // Start from 10011 if no documents exist
-        next();
-      } catch (error) {
-        next(error);
+    try {
+      if (!this._id) {
+        this._id = await getNextSequence('lotteryResultId');
       }
-    } else {
       next();
+    } catch (error) {
+      next(error);
     }
   });
 
