@@ -95,17 +95,24 @@ class LotteryScraperService {
       '--disable-extensions'
     ];
     
-    // For production (Render), use system Chrome
     const options = {
       headless: this.headless,
-      args: args
+      args: args,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || 'chromium'
     };
     
-    if (process.env.NODE_ENV === 'production' || process.env.PUPPETEER_EXECUTABLE_PATH) {
-      options.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
+    try {
+      console.log('🔍 Launching browser with options:', {
+        headless: options.headless,
+        executablePath: options.executablePath,
+        args: options.args
+      });
+      
+      return await puppeteer.launch(options);
+    } catch (error) {
+      console.error('❌ Failed to launch browser:', error);
+      throw error;
     }
-    
-    return await puppeteer.launch(options);
   }
 
   async createPage(browser) {

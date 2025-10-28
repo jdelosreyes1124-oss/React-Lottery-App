@@ -46,50 +46,31 @@ mongoose.connect(mongoUri)
 
 // ENHANCED CORS configuration for cross-domain requests
 const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps, Postman, server-to-server)
-    if (!origin) return callback(null, true);
-    
-    // List of explicitly allowed origins
+  origin: function(origin, callback) {
     const allowedOrigins = [
       'http://localhost:3000',
-      'http://localhost:3001', 
+      'http://localhost:3001',
       'http://localhost:5173',
-      'https://react-lottery-app-qber.vercel.app',
-      process.env.FRONTEND_URL,
-      'https://*.vercel.app'  // Allow all Vercel subdomains
-    ].filter(Boolean); // Remove any undefined values
-
-    // Allow Vercel preview deployments
-    if (origin.includes('vercel.app')) {
+      'https://react-lottery-app-qber.vercel.app'
+    ];
+    
+    // Allow requests with no origin (like mobile apps or Postman)
+    if (!origin || process.env.NODE_ENV === 'development') {
       return callback(null, true);
     }
     
-    // Check if origin is allowed
-    const isAllowed = 
-      allowedOrigins.includes(origin) || 
-      /\.vercel\.app$/.test(origin) || // Any Vercel app
-      /\.onrender\.com$/.test(origin); // Any Render app
-    
-    if (isAllowed) {
+    if (allowedOrigins.includes(origin) || origin.includes('vercel.app')) {
       callback(null, true);
     } else {
-      console.log('⚠️ CORS blocked origin:', origin);
-      // In development, you might want to allow anyway:
-      if (process.env.NODE_ENV === 'development') {
-        console.log('🔧 Development mode - allowing origin anyway');
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
+      callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true, // CRITICAL for cookies/sessions
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'Set-Cookie'],
   exposedHeaders: ['Set-Cookie'],
   optionsSuccessStatus: 200,
-  maxAge: 86400 // Cache preflight for 24 hours
+  maxAge: 86400
 };
 
 app.use(cors(corsOptions));
