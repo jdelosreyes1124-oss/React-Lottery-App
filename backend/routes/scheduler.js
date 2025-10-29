@@ -4,10 +4,9 @@ const scheduledScraper = require('../services/scheduledScraper');
 
 // GET /api/admin/scheduler/status/:gameType
 router.get('/scheduler/status/:gameType', async (req, res) => {
-  // Add CORS headers specifically for this route
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  // Rely on global CORS middleware. Do not set wildcard origin here because
+  // the frontend uses credentials: 'include' and the Access-Control-Allow-Origin
+  // header must be a specific origin in that case.
 
   try {
     const { gameType } = req.params;

@@ -101,7 +101,8 @@ class LotteryScraperService {
       const options = {
         headless: "new",
         args: minimal_args,
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
+        // Prefer explicit executable path when provided (Render will set this)
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || (process.env.RENDER ? '/usr/bin/chromium' : undefined),
         ignoreHTTPSErrors: true,
         defaultViewport: {
           width: 1920,
