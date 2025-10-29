@@ -17,7 +17,7 @@ services:
       - key: RENDER
         value: "true"
       - key: PUPPETEER_EXECUTABLE_PATH
-        value: /usr/bin/chromium
+        value: /usr/bin/chromium-browser
       - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
         value: "true"
     buildFilter:
