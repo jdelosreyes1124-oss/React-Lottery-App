@@ -98,14 +98,35 @@ class LotteryScraperService {
     try {
       console.log('🔍 Launching browser...');
       
+      // Check if we can find the browser
+      const { execSync } = require('child_process');
+      try {
+        execSync('which chromium');
+        console.log('✅ Found chromium in PATH');
+      } catch (err) {
+        console.log('❌ chromium not found in PATH');
+        try {
+          execSync('which chromium-browser');
+          console.log('✅ Found chromium-browser in PATH');
+        } catch (err) {
+          console.log('❌ chromium-browser not found in PATH');
+        }
+      }
+
+      const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium';
+      console.log(`🔍 Using browser at: ${executablePath}`);
+      
       const options = {
         headless: "new",
         args: [
           ...minimal_args,
           '--window-size=1920,1080',
-          '--remote-debugging-port=9222'
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--no-sandbox',
+          '--disable-setuid-sandbox'
         ],
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+        executablePath,
         ignoreHTTPSErrors: true,
         defaultViewport: {
           width: 1920,
