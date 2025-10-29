@@ -47,21 +47,26 @@ mongoose.connect(mongoUri)
 // ENHANCED CORS configuration for cross-domain requests
 const corsOptions = {
   origin: function(origin, callback) {
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://localhost:5173',
-      'https://react-lottery-app-qber.vercel.app'
-    ];
-    
-    // Allow requests with no origin (like mobile apps or Postman)
-    if (!origin || process.env.NODE_ENV === 'development') {
+    // Allow all origins in development
+    if (process.env.NODE_ENV === 'development') {
       return callback(null, true);
     }
+
+    // Production origins
+    const allowedOrigins = [
+      'https://react-lottery-app-qber.vercel.app',
+      'https://lottery-backend-tdqv.onrender.com'
+    ];
     
-    if (allowedOrigins.includes(origin) || origin.includes('vercel.app')) {
-      callback(null, true);
+    if (!origin) {
+      // Allow requests with no origin (like mobile apps or curl)
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+      callback(null, origin);  // Return the origin instead of true
     } else {
+      console.warn(`⚠️ Blocked request from unauthorized origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -97,16 +102,31 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Trust proxy (required for Render/Vercel)
+app.enable('trust proxy');
 app.set('trust proxy', 1);
 
-// Additional CORS headers middleware
+// CORS and security middleware
 app.use((req, res, next) => {
-  // Ensure credentials header is always present
+  const origin = req.get('origin');
+  
+  // Log all requests in production for debugging CORS
+  console.log(`📥 ${req.method} ${req.path} from ${origin || 'no-origin'}`);
+  
+  // Ensure CORS headers are present
   res.header('Access-Control-Allow-Credentials', 'true');
   
-  // Log incoming requests for debugging
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`📥 ${req.method} ${req.path} from ${req.get('origin') || 'no-origin'}`);
+  // Only set origin if it's allowed
+  if (origin && (origin === 'https://react-lottery-app-qber.vercel.app' || 
+                 origin.endsWith('.vercel.app') || 
+                 process.env.NODE_ENV === 'development')) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,PATCH');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cookie, Set-Cookie');
+    return res.status(200).json({ status: 'ok' });
   }
   
   next();
