@@ -100,9 +100,12 @@ class LotteryScraperService {
       
       const options = {
         headless: "new",
-        args: minimal_args,
-        // For Render.com deployment
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
+        args: [
+          ...minimal_args,
+          '--window-size=1920,1080',
+          '--remote-debugging-port=9222'
+        ],
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome',
         ignoreHTTPSErrors: true,
         defaultViewport: {
           width: 1920,
