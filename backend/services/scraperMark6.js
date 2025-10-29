@@ -4,7 +4,7 @@
  * services/scraperMark6.js
  */
 
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
 
 class Mark6ScraperService {
   constructor() {

@@ -98,26 +98,6 @@ class LotteryScraperService {
     try {
       console.log('🔍 Launching browser...');
       
-      // List all chrome-like executables
-      const possiblePaths = [
-        '/usr/bin/google-chrome',
-        '/usr/bin/google-chrome-stable',
-        '/usr/bin/chromium',
-        '/usr/bin/chromium-browser'
-      ];
-
-      // Check which executables exist
-      const { execSync } = require('child_process');
-      console.log('🔍 Checking for Chrome/Chromium installations...');
-      for (const path of possiblePaths) {
-        try {
-          execSync(`ls ${path}`);
-          console.log(`✅ Found browser at: ${path}`);
-        } catch (err) {
-          console.log(`❌ Not found at: ${path}`);
-        }
-      }
-
       const options = {
         headless: "new",
         args: [
@@ -125,7 +105,7 @@ class LotteryScraperService {
           '--window-size=1920,1080',
           '--remote-debugging-port=9222'
         ],
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome',
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
         ignoreHTTPSErrors: true,
         defaultViewport: {
           width: 1920,
