@@ -246,7 +246,13 @@ router.post('/logout', async (req, res) => {
 // GET /api/auth/verify
 router.get('/verify', async (req, res) => {
   try {
-    console.log('🔍 Verifying session:', {
+    // Log request details
+    console.log('🔍 Verify Request Details:', {
+      headers: {
+        origin: req.get('origin'),
+        cookie: req.get('cookie'),
+        'user-agent': req.get('user-agent')
+      },
       hasSession: !!req.session,
       sessionId: req.sessionID,
       userId: req.session?.userId,
@@ -254,8 +260,17 @@ router.get('/verify', async (req, res) => {
     });
     
     // Check if session exists
-    if (!req.session || (!req.session.userId && !req.session.user)) {
-      return res.json({
+    if (!req.session) {
+      console.warn('⚠️ No session object found');
+      return res.status(401).json({
+        authenticated: false,
+        message: 'No session found'
+      });
+    }
+    
+    if (!req.session.userId && !req.session.user) {
+      console.warn('⚠️ Session exists but no user data:', req.sessionID);
+      return res.status(401).json({
         authenticated: false,
         message: 'No active session'
       });

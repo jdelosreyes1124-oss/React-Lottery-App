@@ -128,11 +128,12 @@ app.use(session({
   proxy: true, // Trust the reverse proxy
   name: 'connect.sid', // Session cookie name
   cookie: {
-    secure: process.env.NODE_ENV === 'production', // HTTPS in production
+    secure: true, // Always use secure cookies
     httpOnly: true, // Prevent XSS attacks
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // Critical for cross-domain
+    sameSite: 'none', // Required for cross-origin
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    // Don't set domain - let it default for maximum compatibility
+    path: '/',
+    domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
   }
 }));
 
