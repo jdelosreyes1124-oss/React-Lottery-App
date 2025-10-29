@@ -3,43 +3,59 @@ services:
   - type: web
     name: lottery-backend
     runtime: node
-    buildCommand: |
-      # Install Chrome (using Debian 11 repository)
-      apt-get update &&
-      apt-get install -y wget gnupg2 &&
-      wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - &&
-      echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google.list &&
-      apt-get update &&
-      apt-get install -y google-chrome-stable xvfb &&
-      npm install
-    startCommand: |
-      # Start Xvfb for headless Chrome
-      Xvfb :99 -screen 0 1024x768x16 &
-      export DISPLAY=:99.0
-      npm start
-    envVars:
-      - key: DISPLAY
-        value: :99.0
-    healthCheckPath: /api/health
-    autoDeploy: true
-    plan: free
     region: singapore
-    timeout: 120
-
+    plan: free
+    
+    buildCommand: |
+      # Install Chrome dependencies and Chrome
+      apt-get update && \
+      apt-get install -y \
+        wget \
+        gnupg2 \
+        ca-certificates \
+        fonts-liberation \
+        libasound2 \
+        libatk-bridge2.0-0 \
+        libatk1.0-0 \
+        libatspi2.0-0 \
+        libcups2 \
+        libdbus-1-3 \
+        libdrm2 \
+        libgbm1 \
+        libgtk-3-0 \
+        libnspr4 \
+        libnss3 \
+        libwayland-client0 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxfixes3 \
+        libxkbcommon0 \
+        libxrandr2 \
+        xdg-utils && \
+      wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - && \
+      echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google.list && \
+      apt-get update && \
+      apt-get install -y google-chrome-stable && \
+      npm install
+    
+    startCommand: npm start
+    
+    healthCheckPath: /api/health
+    
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: "true"
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: /usr/bin/google-chrome-stable
       - key: MONGODB_URI
-        value: mongodb+srv://<your-uri-without-db-name>/
+        sync: false
       - key: MONGODB_DB
         value: lotterydb
       - key: SESSION_SECRET
-        value: your-super-secret-key-change-this
+        sync: false
       - key: FRONTEND_URL
         value: https://react-lottery-app-qber.vercel.app
       - key: COOKIE_DOMAIN
         value: .onrender.com
-      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
-        value: true
-      - key: PUPPETEER_EXECUTABLE_PATH
-        value: /usr/bin/google-chrome-stable

@@ -84,75 +84,83 @@ class LotteryScraperService {
     }
   }
 
-  async launchBrowser() {
-    try {
-      console.log('🔍 Launching browser...');
-      
-      // Find Chromium executable
-      const { existsSync } = require('fs');
-      const possiblePaths = [
-        process.env.PUPPETEER_EXECUTABLE_PATH,
-        '/usr/bin/chromium',
-        '/usr/bin/chromium-browser',
-        '/usr/bin/chrome',
-        '/usr/bin/google-chrome'
-      ];
-
-      console.log('🔍 Checking available browsers...');
-      let browserPath = null;
-      for (const path of possiblePaths) {
-        if (path && existsSync(path)) {
-          console.log(`✅ Found browser at: ${path}`);
-          browserPath = path;
-          break;
-        } else if (path) {
-          console.log(`❌ No browser at: ${path}`);
-        }
+ async launchBrowser() {
+  try {
+    console.log('🔍 Launching browser...');
+    
+    // Try to find Chrome executable
+    const { existsSync } = require('fs');
+    const { execSync } = require('child_process');
+    
+    let browserPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    
+    // If PUPPETEER_EXECUTABLE_PATH has wildcard, resolve it
+    if (browserPath && browserPath.includes('*')) {
+      try {
+        const resolved = execSync(`ls ${browserPath} 2>/dev/null | head -n 1`, { encoding: 'utf8' }).trim();
+        if (resolved) browserPath = resolved;
+      } catch (e) {
+        console.log('Could not resolve wildcard path');
       }
-
-      if (!browserPath) {
-        throw new Error('No Chrome/Chromium executable found');
-      }
-
-      const options = {
-        headless: 'new',
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--disable-gpu',
-          '--window-size=1920,1080'
-        ],
-        executablePath: browserPath,
-        ignoreHTTPSErrors: true,
-        defaultViewport: {
-          width: 1920,
-          height: 1080
-        }
-      };
-
-      console.log('🔧 Browser options:', {
-        executablePath: options.executablePath || '(default)',
-        headless: options.headless,
-        args: options.args
-      });
-
-      const browser = await puppeteer.launch(options);
-      const version = await browser.version();
-      console.log('✅ Browser launched successfully:', version);
-      return browser;
-    } catch (error) {
-      console.error('❌ Failed to launch browser:', error);
-      console.error('Environment:', {
-        RENDER: process.env.RENDER,
-        NODE_ENV: process.env.NODE_ENV,
-        PUPPETEER_EXECUTABLE_PATH: process.env.PUPPETEER_EXECUTABLE_PATH,
-        cwd: process.cwd()
-      });
-      throw error;
     }
+    
+    const possiblePaths = [
+      browserPath,
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+      '/usr/bin/chrome',
+    ].filter(Boolean);
+
+    console.log('🔍 Checking available browsers...');
+    let executablePath = null;
+    
+    for (const path of possiblePaths) {
+      if (path && existsSync(path)) {
+        console.log(`✅ Found browser at: ${path}`);
+        executablePath = path;
+        break;
+      } else if (path) {
+        console.log(`❌ No browser at: ${path}`);
+      }
+    }
+
+    if (!executablePath) {
+      throw new Error('No Chrome/Chromium executable found. Checked: ' + possiblePaths.join(', '));
+    }
+
+    const options = {
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--window-size=1920,1080',
+        '--single-process', // Important for Render's free tier
+        '--no-zygote'       // Important for Render's free tier
+      ],
+      executablePath: executablePath,
+      ignoreHTTPSErrors: true,
+      defaultViewport: {
+        width: 1920,
+        height: 1080
+      }
+    };
+
+    console.log('🔧 Launching with:', executablePath);
+    const browser = await puppeteer.launch(options);
+    const version = await browser.version();
+    console.log('✅ Browser launched successfully:', version);
+    return browser;
+  } catch (error) {
+    console.error('❌ Failed to launch browser:', error);
+    throw error;
   }
+}
 
   async createPage(browser) {
     const page = await browser.newPage();
