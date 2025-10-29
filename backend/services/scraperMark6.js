@@ -4,7 +4,7 @@
  * services/scraperMark6.js
  */
 
-const puppeteer = require('puppeteer-core');
+const puppeteer = require('puppeteer');
 
 class Mark6ScraperService {
   constructor() {
@@ -36,7 +36,7 @@ class Mark6ScraperService {
     }
   }
 
-  async launchBrowser() {
+ async launchBrowser() {
     const args = [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -44,22 +44,19 @@ class Mark6ScraperService {
       '--disable-gpu',
       '--no-first-run',
       '--no-zygote',
+      '--single-process',
       '--disable-extensions'
     ];
     
-    // For production (Render), use system Chrome
     const options = {
       headless: this.headless,
       args: args
     };
     
-    if (process.env.NODE_ENV === 'production' || process.env.PUPPETEER_EXECUTABLE_PATH) {
-      options.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
-    }
+    // Remove executablePath - let Puppeteer use bundled Chromium
     
     return await puppeteer.launch(options);
   }
-
   async createPage(browser) {
     const page = await browser.newPage();
     await page.setViewport({ width: 1920, height: 1080 });
