@@ -33,7 +33,7 @@
     "node-fetch": "^3.3.2",
     "pg": "^8.16.3",
     "pg-hstore": "^2.3.4",
-    "puppeteer-core": "^21.5.0",
+    "puppeteer": "^21.5.0",
     "sequelize": "^6.37.7",
     "xlsx": "^0.18.5"
   },

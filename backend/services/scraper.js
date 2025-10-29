@@ -85,48 +85,46 @@ class LotteryScraperService {
   }
 
   async launchBrowser() {
-    const minimal_args = [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--no-first-run',
-      '--no-zygote',
-      '--single-process'
-    ];
-    
     try {
       console.log('🔍 Launching browser...');
       
-      // Check if we can find the browser
-      const { execSync } = require('child_process');
-      try {
-        execSync('which chromium');
-        console.log('✅ Found chromium in PATH');
-      } catch (err) {
-        console.log('❌ chromium not found in PATH');
-        try {
-          execSync('which chromium-browser');
-          console.log('✅ Found chromium-browser in PATH');
-        } catch (err) {
-          console.log('❌ chromium-browser not found in PATH');
+      // Find Chromium executable
+      const { existsSync } = require('fs');
+      const possiblePaths = [
+        process.env.PUPPETEER_EXECUTABLE_PATH,
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/chrome',
+        '/usr/bin/google-chrome'
+      ];
+
+      console.log('🔍 Checking available browsers...');
+      let browserPath = null;
+      for (const path of possiblePaths) {
+        if (path && existsSync(path)) {
+          console.log(`✅ Found browser at: ${path}`);
+          browserPath = path;
+          break;
+        } else if (path) {
+          console.log(`❌ No browser at: ${path}`);
         }
       }
 
-      const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium';
-      console.log(`🔍 Using browser at: ${executablePath}`);
-      
+      if (!browserPath) {
+        throw new Error('No Chrome/Chromium executable found');
+      }
+
       const options = {
-        headless: "new",
+        headless: 'new',
         args: [
-          ...minimal_args,
-          '--window-size=1920,1080',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
           '--no-sandbox',
-          '--disable-setuid-sandbox'
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--disable-gpu',
+          '--window-size=1920,1080'
         ],
-        executablePath,
+        executablePath: browserPath,
         ignoreHTTPSErrors: true,
         defaultViewport: {
           width: 1920,
