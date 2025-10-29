@@ -4,7 +4,7 @@
  * services/scraper.js
  */
 
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
 
 class LotteryScraperService {
   constructor() {
@@ -98,6 +98,26 @@ class LotteryScraperService {
     try {
       console.log('🔍 Launching browser...');
       
+      // List all chrome-like executables
+      const possiblePaths = [
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser'
+      ];
+
+      // Check which executables exist
+      const { execSync } = require('child_process');
+      console.log('🔍 Checking for Chrome/Chromium installations...');
+      for (const path of possiblePaths) {
+        try {
+          execSync(`ls ${path}`);
+          console.log(`✅ Found browser at: ${path}`);
+        } catch (err) {
+          console.log(`❌ Not found at: ${path}`);
+        }
+      }
+
       const options = {
         headless: "new",
         args: [
