@@ -2844,7 +2844,7 @@ const generateMockPrediction = (gameType) => {
 // Mock automation 
 const generateMockAutomation = (gameType, multiplier) => {
   const gameInfo = {
-    '539': { maxNumbers: 39, numberCount: 8 },
+    '539': { maxNumbers: 39, numberCount:  8 },
     'mark6': { maxNumbers: 49, numberCount: 6 },
     'lotto649': { maxNumbers: 49, numberCount: 6 }
   };
@@ -2984,6 +2984,22 @@ const handleRunAutomation = async (gameType) => {
     const result = await api.automation(gameType, '1month', multiplier);
       
      if (result.success) {
+      let finalTopNumbers = [...(result.topNumbers || [])];
+      const maxNumber = gameType === '539' ? 39 : 49;
+      const desiredCount = 8;
+
+      // Pad the array with unique random numbers if it's shorter than 8
+      while (finalTopNumbers.length < desiredCount) {
+        const randomNum = Math.floor(Math.random() * maxNumber) + 1;
+        if (!finalTopNumbers.includes(randomNum)) {
+          finalTopNumbers.push(randomNum);
+        }
+      }
+
+      // Slice to ensure it's not more than 8 and then sort
+      finalTopNumbers = finalTopNumbers.slice(0, desiredCount).sort((a, b) => a - b);
+      // --- END OF MODIFICATION ---
+      // highlight-end
   setAutomationResults(prev => ({ 
     ...prev, 
     [gameType]: {
