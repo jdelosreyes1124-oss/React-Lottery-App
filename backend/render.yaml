@@ -6,24 +6,16 @@ services:
     region: singapore
     plan: free
     
-    buildCommand: npm install
+    buildCommand: npm install && npm run build --if-present
     
     startCommand: npm start
     
-    healthCheckPath: /api/health
+    # ...
     
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
-        value: "false"
+      # PUPPETEER_SKIP_CHROMIUM_DOWNLOAD has been removed
       - key: MONGODB_URI
         sync: false
-      - key: MONGODB_DB
-        value: lotterydb
-      - key: SESSION_SECRET
-        sync: false
-      - key: FRONTEND_URL
-        value: https://react-lottery-app-qber.vercel.app
-      - key: COOKIE_DOMAIN
-        value: .onrender.com
+      # ...
