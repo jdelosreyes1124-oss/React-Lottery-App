@@ -13,9 +13,13 @@ services:
     # ...
     
     envVars:
+      - key: NODE_VERSION
+        value: 20.10.0 # Use a specific version compatible with Puppeteer
       - key: NODE_ENV
         value: production
       # PUPPETEER_SKIP_CHROMIUM_DOWNLOAD has been removed
+      - key: CHROME_EXECUTABLE_PATH # Add this environment variable
+        value: /usr/bin/google-chrome
       - key: MONGODB_URI
         sync: false
       # ...
