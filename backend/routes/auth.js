@@ -158,7 +158,7 @@ router.post('/google', async (req, res) => {
         profilePicture: picture,
         role: 'user', // Default role for new Google users
         authProvider: 'google',
-        password: null, // No password for Google auth users
+        
         isActive: true,
         lastLogin: new Date()
       });
