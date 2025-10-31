@@ -171,6 +171,12 @@ router.post('/google', async (req, res) => {
       user.name = name || user.name;
       user.authProvider = 'google';
       user.lastLogin = new Date();
+      
+      // Mark password as not required for this save operation
+      // This prevents validation errors when converting local users to Google
+      user.markModified('authProvider');
+      user.markModified('googleId');
+      
       await user.save();
 
       console.log(`✅ Existing user logged in via Google: ${email}`);

@@ -8,9 +8,14 @@ const userSchema = new mongoose.Schema({
   password: { 
     type: String, 
     required: function() {
-      // Password is only required for local/traditional auth
-      // If googleId exists, password is not required
-      return !this.googleId && (this.authProvider === 'local' || !this.authProvider);
+      // Password is NOT required if:
+      // 1. User has a googleId (Google OAuth user)
+      // 2. authProvider is explicitly 'google'
+      if (this.googleId || this.authProvider === 'google') {
+        return false;
+      }
+      // Password IS required for local/traditional auth
+      return true;
     }
   },
   
@@ -54,9 +59,10 @@ userSchema.virtual('displayName').get(function() {
 });
 
 // ✅ NEW: Pre-save hook to ensure authProvider consistency
-userSchema.pre('save', function(next) {
+// IMPORTANT: Use 'validate' hook to run BEFORE validation
+userSchema.pre('validate', function(next) {
   // If Google user, ensure authProvider is set
-  if (this.googleId && !this.authProvider) {
+  if (this.googleId) {
     this.authProvider = 'google';
   }
   
