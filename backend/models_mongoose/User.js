@@ -5,19 +5,19 @@ const userSchema = new mongoose.Schema({
   _id: Number,  // Keep original ID from MySQL
   username: { type: String, required: true, unique: true },
   email: { type: String, unique: true, sparse: true },
-  password: { 
-    type: String, 
-    required: function() {
-      // Password is NOT required if:
-      // 1. User has a googleId (Google OAuth user)
-      // 2. authProvider is explicitly 'google'
-      if (this.googleId || this.authProvider === 'google') {
-        return false;
-      }
-      // Password IS required for local/traditional auth
-      return true;
+password: { 
+  type: String, 
+  required: function() {
+    // Password is NOT required if:
+    // 1. User has a googleId (Google OAuth user)
+    // 2. authProvider is explicitly 'google'
+    if (this.googleId || this.authProvider === 'google') {
+      return false;
     }
-  },
+    // Password IS required for local/traditional auth
+    return true;
+  }
+},
   
   // ✅ NEW: Google OAuth fields
   googleId: { type: String, unique: true, sparse: true },
