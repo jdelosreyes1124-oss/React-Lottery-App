@@ -12,7 +12,19 @@ const userSchema = new mongoose.Schema({
   password: { 
     type: String, 
     required: function() {
-      return !this.googleId;
+      // For Google OAuth users, password is not required
+      return !this.googleId && this.authProvider !== 'google';
+    },
+    validate: {
+      validator: function(v) {
+        // If googleId exists, password validation is skipped
+        if (this.googleId || this.authProvider === 'google') {
+          return true;
+        }
+        // For local users, password must exist
+        return v && v.length > 0;
+      },
+      message: 'Password is required for local authentication'
     }
   },
   
@@ -32,14 +44,38 @@ const userSchema = new mongoose.Schema({
 });
 
 // Pre-validation hook to ensure data consistency.
+// CRITICAL FIX: Set authProvider BEFORE validation runs
 userSchema.pre('validate', function(next) {
+  // Ensure authProvider is set correctly based on googleId
   if (this.googleId) {
     this.authProvider = 'google';
-  } else {
+    // Mark password as not required for this validation
+    this.$locals.skipPasswordValidation = true;
+  } else if (!this.authProvider) {
     this.authProvider = 'local';
   }
   next();
 });
+
+// Hash password before saving (only for local auth)
+userSchema.pre('save', async function(next) {
+  // Only hash password if it's modified and exists
+  if (this.isModified('password') && this.password) {
+    try {
+      const salt = await bcrypt.genSalt(10);
+      this.password = await bcrypt.hash(this.password, salt);
+    } catch (error) {
+      return next(error);
+    }
+  }
+  next();
+});
+
+// Method to compare passwords
+userSchema.methods.comparePassword = async function(candidatePassword) {
+  if (!this.password) return false;
+  return await bcrypt.compare(candidatePassword, this.password);
+};
 
 // Standard, error-proof way to export a Mongoose model to prevent overwrite errors.
 module.exports = mongoose.models.User || mongoose.model('User', userSchema, 'users');

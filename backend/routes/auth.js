@@ -15,9 +15,16 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 router.post('/google', async (req, res) => {
   try {
     const { token } = req.body;
-    if (!token) return res.status(400).json({ success: false, message: 'Google token is required' });
+    if (!token) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Google token is required' 
+      });
+    }
 
     console.log('🔐 Google OAuth login attempt...');
+    
+    // Verify Google token
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
       audience: process.env.GOOGLE_CLIENT_ID,
@@ -27,19 +34,40 @@ router.post('/google', async (req, res) => {
     const { email, name, picture, sub: googleId, email_verified } = payload;
 
     console.log(`✅ Google token verified for: ${email}`);
-    if (!email_verified) return res.status(403).json({ success: false, message: 'Email not verified by Google' });
+    
+    if (!email_verified) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Email not verified by Google' 
+      });
+    }
 
-    let user = await User.findOne({ $or: [{ email: email.toLowerCase() }, { googleId: googleId }] });
+    // Search for existing user by email or googleId
+    let user = await User.findOne({ 
+      $or: [
+        { email: email.toLowerCase() }, 
+        { googleId: googleId }
+      ] 
+    });
 
     if (!user) {
-      const username = email.split('@')[0].toLowerCase() + '_google';
-      let finalUsername = username;
-      const existingUser = await User.findOne({ username: finalUsername });
-      if (existingUser) finalUsername = username + '_' + Math.random().toString(36).substring(7);
+      // Create new user via Google OAuth
+      console.log('📝 Creating new user via Google OAuth...');
       
+      // Generate unique username
+      const baseUsername = email.split('@')[0].toLowerCase() + '_google';
+      let finalUsername = baseUsername;
+      
+      const existingUser = await User.findOne({ username: finalUsername });
+      if (existingUser) {
+        finalUsername = baseUsername + '_' + Math.random().toString(36).substring(7);
+      }
+      
+      // Get next user ID
       const lastUser = await User.findOne().sort({ _id: -1 });
       const nextId = lastUser ? lastUser._id + 1 : 1;
       
+      // Create new user object with all required fields for Google OAuth
       const newUserData = {
         _id: nextId,
         username: finalUsername,
@@ -47,40 +75,311 @@ router.post('/google', async (req, res) => {
         name: name || finalUsername,
         googleId: googleId,
         profilePicture: picture,
-        authProvider: 'google',
+        authProvider: 'google', // Explicitly set to 'google'
         isActive: true,
-        lastLogin: new Date()
+        lastLogin: new Date(),
+        // NOTE: password is intentionally omitted for Google OAuth users
       };
       
+      console.log('📦 New user data prepared:', { 
+        username: newUserData.username, 
+        email: newUserData.email,
+        authProvider: newUserData.authProvider,
+        hasGoogleId: !!newUserData.googleId 
+      });
+      
+      // Create the user
       user = await User.create(newUserData);
       console.log(`✅ New user created via Google OAuth: ${email} (ID: ${nextId})`);
+      
     } else {
+      // Update existing user
+      console.log('🔄 Updating existing user with Google OAuth data...');
+      
+      // If user exists but doesn't have googleId (was created via local auth)
+      if (!user.googleId) {
+        console.log('🔗 Linking Google account to existing local account...');
+      }
+      
+      // Update user fields
       user.googleId = googleId;
       user.profilePicture = picture;
       user.name = name || user.name;
-      user.authProvider = 'google';
+      user.authProvider = 'google'; // Update to Google auth
       user.lastLogin = new Date();
-      await user.save({ validateModifiedOnly: true }); // Prevents password validation on existing users
+      
+      // Save with validateModifiedOnly to prevent password validation
+      await user.save({ validateModifiedOnly: true });
       console.log(`✅ Existing user logged in via Google: ${email}`);
     }
 
+    // Create session
     req.session.userId = user._id.toString();
-    req.session.user = { id: user._id.toString(), username: user.username, role: user.role, authMethod: 'google' };
+    req.session.user = { 
+      id: user._id.toString(), 
+      username: user.username, 
+      role: user.role, 
+      authMethod: 'google',
+      email: user.email,
+      name: user.name,
+      profilePicture: user.profilePicture
+    };
 
-    await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+    // Save session
+    await new Promise((resolve, reject) => {
+      req.session.save(err => err ? reject(err) : resolve());
+    });
+    
     console.log(`✅ Session saved for Google user: ${user.username}`);
 
-    res.json({ success: true, message: 'Google login successful', user: req.session.user });
+    // Send success response
+    res.json({ 
+      success: true, 
+      message: 'Google login successful', 
+      user: req.session.user 
+    });
 
   } catch (error) {
     console.error('❌ Google auth error:', error);
-    res.status(500).json({ success: false, message: 'Google authentication failed', error: error.message });
+    
+    // More detailed error response
+    let errorMessage = 'Google authentication failed';
+    let statusCode = 500;
+    
+    if (error.message.includes('validation failed')) {
+      errorMessage = 'User validation error: ' + error.message;
+      statusCode = 400;
+    } else if (error.message.includes('duplicate key')) {
+      errorMessage = 'User already exists with this email or Google ID';
+      statusCode = 409;
+    }
+    
+    res.status(statusCode).json({ 
+      success: false, 
+      message: errorMessage, 
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
-// Other routes (login, register, verify, etc.) should also be updated to use 'User' instead of 'db.User'.
-// This provided snippet focuses on the failing Google route.
+// POST /api/auth/login - Local Login
+router.post('/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Username and password are required' 
+      });
+    }
 
-// (Include your other routes like /register, /login, /verify here, ensuring they use 'User' instead of 'db.User')
+    // Find user by username or email
+    const user = await User.findOne({ 
+      $or: [
+        { username: username.toLowerCase() }, 
+        { email: username.toLowerCase() }
+      ] 
+    });
+
+    if (!user) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid credentials' 
+      });
+    }
+
+    // Check if user is a Google OAuth user
+    if (user.authProvider === 'google' && !user.password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'This account uses Google Sign-In. Please log in with Google.' 
+      });
+    }
+
+    // Verify password
+    const isPasswordValid = await user.comparePassword(password);
+    
+    if (!isPasswordValid) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid credentials' 
+      });
+    }
+
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save({ validateModifiedOnly: true });
+
+    // Create session
+    req.session.userId = user._id.toString();
+    req.session.user = { 
+      id: user._id.toString(), 
+      username: user.username, 
+      role: user.role, 
+      authMethod: 'local',
+      email: user.email,
+      name: user.name
+    };
+
+    await new Promise((resolve, reject) => {
+      req.session.save(err => err ? reject(err) : resolve());
+    });
+
+    res.json({ 
+      success: true, 
+      message: 'Login successful', 
+      user: req.session.user 
+    });
+
+  } catch (error) {
+    console.error('❌ Login error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Login failed', 
+      error: error.message 
+    });
+  }
+});
+
+// POST /api/auth/register - Local Registration
+router.post('/register', async (req, res) => {
+  try {
+    const { username, email, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Username and password are required' 
+      });
+    }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ 
+      $or: [
+        { username: username.toLowerCase() }, 
+        { email: email ? email.toLowerCase() : null }
+      ] 
+    });
+
+    if (existingUser) {
+      return res.status(409).json({ 
+        success: false, 
+        message: 'Username or email already exists' 
+      });
+    }
+
+    // Get next user ID
+    const lastUser = await User.findOne().sort({ _id: -1 });
+    const nextId = lastUser ? lastUser._id + 1 : 1;
+
+    // Create new user
+    const newUser = await User.create({
+      _id: nextId,
+      username: username.toLowerCase(),
+      email: email ? email.toLowerCase() : undefined,
+      password: password, // Will be hashed by pre-save hook
+      authProvider: 'local',
+      isActive: true,
+      lastLogin: new Date()
+    });
+
+    // Create session
+    req.session.userId = newUser._id.toString();
+    req.session.user = { 
+      id: newUser._id.toString(), 
+      username: newUser.username, 
+      role: newUser.role, 
+      authMethod: 'local',
+      email: newUser.email
+    };
+
+    await new Promise((resolve, reject) => {
+      req.session.save(err => err ? reject(err) : resolve());
+    });
+
+    res.status(201).json({ 
+      success: true, 
+      message: 'Registration successful', 
+      user: req.session.user 
+    });
+
+  } catch (error) {
+    console.error('❌ Registration error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Registration failed', 
+      error: error.message 
+    });
+  }
+});
+
+// GET /api/auth/verify - Verify Session
+router.get('/verify', async (req, res) => {
+  try {
+    if (!req.session || !req.session.userId) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Not authenticated' 
+      });
+    }
+
+    const user = await User.findOne({ _id: parseInt(req.session.userId) });
+    
+    if (!user || !user.isActive) {
+      req.session.destroy();
+      return res.status(401).json({ 
+        success: false, 
+        message: 'User not found or inactive' 
+      });
+    }
+
+    res.json({ 
+      success: true, 
+      user: req.session.user 
+    });
+
+  } catch (error) {
+    console.error('❌ Verify error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Verification failed' 
+    });
+  }
+});
+
+// POST /api/auth/logout - Logout
+router.post('/logout', async (req, res) => {
+  try {
+    if (req.session) {
+      req.session.destroy((err) => {
+        if (err) {
+          console.error('❌ Logout error:', err);
+          return res.status(500).json({ 
+            success: false, 
+            message: 'Logout failed' 
+          });
+        }
+        res.clearCookie('connect.sid');
+        res.json({ 
+          success: true, 
+          message: 'Logged out successfully' 
+        });
+      });
+    } else {
+      res.json({ 
+        success: true, 
+        message: 'Already logged out' 
+      });
+    }
+  } catch (error) {
+    console.error('❌ Logout error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Logout failed' 
+    });
+  }
+});
 
 module.exports = router;
