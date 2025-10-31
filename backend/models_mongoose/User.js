@@ -9,7 +9,8 @@ const userSchema = new mongoose.Schema({
     type: String, 
     required: function() {
       // Password is only required for local/traditional auth
-      return this.authProvider === 'local' || !this.authProvider;
+      // If googleId exists, password is not required
+      return !this.googleId && (this.authProvider === 'local' || !this.authProvider);
     }
   },
   
