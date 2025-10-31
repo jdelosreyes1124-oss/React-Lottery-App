@@ -1,3 +1,5 @@
+console.log("✅✅✅ LOADING NEW User.js MODEL - VERSION 2025-10-31 ✅✅✅");
+
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
