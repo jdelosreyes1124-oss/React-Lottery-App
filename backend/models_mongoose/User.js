@@ -77,5 +77,9 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
-// Standard, error-proof way to export a Mongoose model to prevent overwrite errors.
-module.exports = mongoose.models.User || mongoose.model('User', userSchema, 'users');
+// Force model recompilation to ensure updated schema is used
+// Delete any cached model to prevent using old schema
+delete mongoose.models.User;
+delete mongoose.connection.models.User;
+
+module.exports = mongoose.model('User', userSchema, 'users');
