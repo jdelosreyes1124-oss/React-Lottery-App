@@ -58,7 +58,8 @@ router.post('/register', async (req, res) => {
       id: newUser._id,
       username: newUser.username,
       role: newUser.role,
-      email: newUser.email
+      email: newUser.email,
+      authMethod: 'traditional'  // ✅ Registration is traditional auth
     };
     
     // Save session
@@ -78,7 +79,8 @@ router.post('/register', async (req, res) => {
         id: newUser._id,
         username: newUser.username,
         email: newUser.email,
-        role: newUser.role
+        role: newUser.role,
+        authMethod: 'traditional'  // ✅ Registration is traditional
       }
     });
   } catch (error) {
@@ -181,9 +183,10 @@ router.post('/google', async (req, res) => {
       _id: user._id.toString(),
       username: user.username,
       email: user.email,
-      role: user.role,
+      role: user.role,  // Always 'user' for Google auth, never 'admin'
       profilePicture: user.profilePicture,
-      authProvider: 'google'
+      authProvider: 'google',  // Keep for backward compatibility
+      authMethod: 'google'     // ✅ REQUIRED: Frontend expects this field
     };
 
     // Force session save
@@ -218,9 +221,10 @@ router.post('/google', async (req, res) => {
         username: user.username,
         email: user.email,
         name: user.name,
-        role: user.role,
+        role: user.role,  // Always 'user' for Google OAuth
         profilePicture: user.profilePicture,
-        authProvider: 'google'
+        authProvider: 'google',  // Keep for backward compatibility
+        authMethod: 'google'     // ✅ CRITICAL: Frontend needs this to restrict admin access
       }
     });
 
@@ -316,7 +320,8 @@ router.post('/login', async (req, res) => {
       _id: user._id.toString(),
       username: user.username,
       email: user.email,
-      role: user.role
+      role: user.role,
+      authMethod: 'traditional'  // ✅ REQUIRED: Mark as traditional login
     };
     
     // Force session save
@@ -351,7 +356,8 @@ router.post('/login', async (req, res) => {
         id: user._id,
         username: user.username,
         email: user.email,
-        role: user.role
+        role: user.role,
+        authMethod: 'traditional'  // ✅ REQUIRED: Frontend needs this
       }
     });
   } catch (error) {
@@ -486,7 +492,8 @@ router.get('/verify', async (req, res) => {
         id: user._id,
         username: user.username,
         email: user.email,
-        role: user.role
+        role: user.role,
+        authMethod: req.session.user?.authMethod || 'traditional'  // ✅ Include authMethod from session
       }
     });
   } catch (error) {
