@@ -1738,7 +1738,57 @@ const LoginForm = ({ onClose }) => {
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, googleLogin } = useAuth();
+
+  useEffect(() => {
+    // Load Google Sign-In script
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    document.body.appendChild(script);
+
+    script.onload = () => {
+      if (window.google && GOOGLE_CLIENT_ID) {
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: handleGoogleResponse,
+        });
+        window.google.accounts.id.renderButton(
+          document.getElementById('googleSignInButton'),
+          { 
+            theme: 'outline', 
+            size: 'large', 
+            width: 350,
+            text: 'signin_with',
+            shape: 'rectangular'
+          }
+        );
+      }
+    };
+
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, []);
+
+  const handleGoogleResponse = async (response) => {
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      const result = await googleLogin(response.credential);
+      if (result.success) {
+        onClose();
+      } else {
+        setError(result.error || 'Google login failed');
+      }
+    } catch (err) {
+      setError('Google login failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!credentials.username || !credentials.password) {
@@ -1769,12 +1819,28 @@ const LoginForm = ({ onClose }) => {
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold flex items-center space-x-2">
             <Lock className="h-5 w-5" />
-            <span>Login</span>
+            <span>Sign in to continue</span>
           </h3>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700 hover:scale-110 transition-all duration-200 text-xl">×</button>
         </div>
         
         <div className="space-y-4">
+          {/* Google Sign-In Button */}
+          <div className="flex justify-center">
+            <div id="googleSignInButton"></div>
+          </div>
+
+          {/* Divider */}
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-white text-gray-500">Or continue with</span>
+            </div>
+          </div>
+
+          {/* Username/Password Login */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
             <input
@@ -1783,6 +1849,7 @@ const LoginForm = ({ onClose }) => {
               onChange={(e) => setCredentials({ ...credentials, username: e.target.value })}
               onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              placeholder="Enter your username"
             />
           </div>
           
@@ -1794,6 +1861,7 @@ const LoginForm = ({ onClose }) => {
               onChange={(e) => setCredentials({ ...credentials, password: e.target.value })}
               onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              placeholder="Enter your password"
             />
           </div>
           
@@ -1806,10 +1874,17 @@ const LoginForm = ({ onClose }) => {
           <button
             onClick={handleSubmit}
             disabled={isLoading}
-            className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 hover:scale-105 transition-all duration-200 disabled:opacity-50"
+            className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 hover:scale-105 transition-all duration-200 disabled:opacity-50 font-medium"
           >
-            {isLoading ? 'Logging in...' : 'Login'}
+            {isLoading ? 'Signing in...' : 'Sign In'}
           </button>
+
+          {/* Demo credentials hint */}
+          <div className="text-center">
+            <p className="text-xs text-gray-500 mt-2">
+              Demo: admin / admin123
+            </p>
+          </div>
         </div>
       </div>
     </div>
