@@ -2881,16 +2881,22 @@ const GoogleSignInButton = ({ onSuccess, onError, disabled }) => {
           callback: handleCredentialResponse,
         });
 
-        window.google.accounts.id.renderButton(
-          document.getElementById('googleSignInButton'),
-          {
-            theme: 'filled_blue',
-            size: 'large',
-            width: '100%',
-            text: 'signin_with',
-            shape: 'rectangular',
-          }
-        );
+        // Get the actual width of the container
+        const buttonContainer = document.getElementById('googleSignInButton');
+        if (buttonContainer) {
+          const containerWidth = buttonContainer.offsetWidth || 328;
+          
+          window.google.accounts.id.renderButton(
+            buttonContainer,
+            {
+              theme: 'filled_blue',
+              size: 'large',
+              width: containerWidth, // Use pixel value, not percentage
+              text: 'signin_with',
+              shape: 'rectangular',
+            }
+          );
+        }
       }
     };
 

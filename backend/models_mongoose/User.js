@@ -5,7 +5,13 @@ const userSchema = new mongoose.Schema({
   _id: Number,  // Keep original ID from MySQL
   username: { type: String, required: true, unique: true },
   email: { type: String, unique: true, sparse: true },
-  password: { type: String, required: false },  // ✅ Changed: Not required for Google users
+  password: { 
+    type: String, 
+    required: function() {
+      // Password is only required for local/traditional auth
+      return this.authProvider === 'local' || !this.authProvider;
+    }
+  },
   
   // ✅ NEW: Google OAuth fields
   googleId: { type: String, unique: true, sparse: true },
@@ -32,6 +38,7 @@ const userSchema = new mongoose.Schema({
 // Existing method
 userSchema.methods.validatePassword = async function(password) { 
   const bcrypt = require('bcryptjs'); 
+  if (!this.password) return false; // No password for Google users
   return await bcrypt.compare(password, this.password); 
 };
 
