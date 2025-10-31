@@ -362,10 +362,44 @@ router.get('/verify', async (req, res) => {
     // ✅ FIX: Changed db.User to User
     const user = await User.findById(userId).select('-password');
     
-    if (!user) {
-      req.session.destroy();
-      return res.json({ authenticated: false, message: 'User not found' });
-    }
+ // In routes/auth.js, inside the POST /google route
+
+if (!user) {
+  // Create new user from Google account
+  const username = email.split('@')[0].toLowerCase() + '_google';
+  let finalUsername = username;
+  const existingUser = await User.findOne({ username: finalUsername });
+  if (existingUser) {
+    finalUsername = username + '_' + Math.random().toString(36).substring(7);
+  }
+  
+  const lastUser = await User.findOne().sort({ _id: -1 });
+  const nextId = lastUser ? lastUser._id + 1 : 1;
+  
+  // ✅ FINAL DIAGNOSTIC: Create the user data object separately
+  const newUserData = {
+    _id: nextId,
+    username: finalUsername,
+    email: email.toLowerCase(),
+    name: name || finalUsername,
+    googleId: googleId, // The critical field
+    profilePicture: picture,
+    role: 'user',
+    authProvider: 'google',
+    isActive: true,
+    lastLogin: new Date()
+  };
+  
+  // ✅ FINAL DIAGNOSTIC: Log the object right before the database call
+  console.log('--- DEBUG: DATA BEFORE MONGOOSE CREATE ---', newUserData);
+  
+  // Now, create the user with the prepared data
+  user = await User.create(newUserData);
+
+  console.log(`✅ New user created via Google OAuth: ${email} (ID: ${nextId})`);
+} else {
+  // ... your existing 'else' block for updating a user
+}
     
     if (!user.isActive) {
       req.session.destroy();
