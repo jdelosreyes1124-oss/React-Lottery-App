@@ -77,11 +77,8 @@ const corsOptions = {
   optionsSuccessStatus: 200,
   maxAge: 86400
 };
-app.use((req, res, next) => {
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
-  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
-  next();
-});
+// COOP headers removed to allow Google OAuth popup communication
+// These headers were blocking window.postMessage from Google OAuth
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions)); // Handle preflight requests
 
