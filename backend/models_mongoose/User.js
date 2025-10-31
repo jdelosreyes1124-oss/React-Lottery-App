@@ -6,15 +6,16 @@ const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true, trim: true },
   email: { type: String, unique: true, sparse: true, trim: true },
   
-  // This logic is correct and remains unchanged.
+  // This is your correct conditional logic.
   password: { 
     type: String, 
     required: function() {
+      // Password is only required if the authProvider is 'local'.
       return this.authProvider === 'local';
     }
   },
   
-  // Consolidated Google OAuth and other user fields
+  // Consolidated Google OAuth and user fields (duplicates removed).
   googleId: { type: String, unique: true, sparse: true },
   name: { type: String }, // For Google user's full name
   profilePicture: { type: String },
@@ -31,38 +32,21 @@ const userSchema = new mongoose.Schema({
   createdBy: { type: Number, ref: 'User' },
   passwordChangedAt: Date
 }, {
-  timestamps: true // Simplified timestamp option
+  timestamps: true 
 });
 
-// --- METHODS AND HOOKS (These were already well-implemented) ---
+// --- METHODS AND HOOKS ---
 
-// Validate password for local accounts
 userSchema.methods.validatePassword = async function(password) { 
-  if (!this.password) return false; // No password for Google users
+  if (!this.password) return false;
   return await bcrypt.compare(password, this.password); 
 };
 
-// Check if account is Google-only
-userSchema.methods.isGoogleOnly = function() {
-  return this.authProvider === 'google' && !this.password;
-};
-
-// Virtual for display name
-userSchema.virtual('displayName').get(function() {
-  return this.name || this.username;
-});
-
-// Pre-validation hook to ensure authProvider consistency
 userSchema.pre('validate', function(next) {
-  if (this.googleId && !this.authProvider) {
+  if (this.googleId) {
     this.authProvider = 'google';
-  }
-  if (this.password && !this.googleId && !this.authProvider) {
-    this.authProvider = 'local';
   }
   next();
 });
-
-
 
 module.exports = mongoose.model('User', userSchema, 'users');
