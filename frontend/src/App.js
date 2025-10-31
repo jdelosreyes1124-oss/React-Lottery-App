@@ -5,6 +5,10 @@ import ConnectionTest from './ConnectionTest';  // Keep the debug component
 // API Configuration
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://lottery-backend-tdqv.onrender.com/api';
 console.log('✅ API_BASE_URL:', API_BASE_URL);
+
+// Google OAuth Configuration
+const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID;
+
 // User roles
 const USER_ROLES = {
   ADMIN: 'admin',
@@ -40,6 +44,17 @@ const api = {
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ username, password }),
   credentials: 'include'
+    }).then(res => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }),
+  
+  googleLogin: (tokenId) =>
+    fetch(`${API_BASE_URL}/auth/google`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: tokenId }),
+      credentials: 'include'
     }).then(res => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
@@ -1615,6 +1630,19 @@ const AuthProvider = ({ children }) => {
     }
   };
 
+  const googleLogin = async (tokenId) => {
+    try {
+      const response = await api.googleLogin(tokenId);
+      if (response.success && response.user) {
+        setUser(response.user);
+        return { success: true };
+      }
+      return { success: false, error: response.message || 'Google login failed' };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  };
+
   const logout = async () => {
     await api.logout();
     setUser(null);
@@ -1626,6 +1654,7 @@ const AuthProvider = ({ children }) => {
       isAuthenticated: !!user,
       isAdmin: user?.role === USER_ROLES.ADMIN,
       login,
+      googleLogin,
       logout,
       checkAuth,
       isLoading
@@ -2725,6 +2754,219 @@ const WebScraperPanel = ({ gameType, onClose }) => {
   );
 };
 
+// Google Sign-In Button Component
+const GoogleSignInButton = ({ onSuccess, onError, disabled }) => {
+  useEffect(() => {
+    // Load Google Sign-In script
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    document.body.appendChild(script);
+
+    script.onload = () => {
+      if (window.google && GOOGLE_CLIENT_ID) {
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: handleCredentialResponse,
+        });
+
+        window.google.accounts.id.renderButton(
+          document.getElementById('googleSignInButton'),
+          {
+            theme: 'filled_blue',
+            size: 'large',
+            width: '100%',
+            text: 'signin_with',
+            shape: 'rectangular',
+          }
+        );
+      }
+    };
+
+    return () => {
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
+    };
+  }, []);
+
+  const handleCredentialResponse = async (response) => {
+    try {
+      if (response.credential) {
+        await onSuccess(response.credential);
+      }
+    } catch (error) {
+      console.error('Google login error:', error);
+      onError(error.message || 'Google login failed');
+    }
+  };
+
+  return (
+    <div className="w-full">
+      <div 
+        id="googleSignInButton" 
+        className={`w-full ${disabled ? 'opacity-50 pointer-events-none' : ''}`}
+      />
+    </div>
+  );
+};
+
+// Full-Screen Login Component
+const GoogleLoginScreen = () => {
+  const { login, googleLogin } = useAuth();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleTraditionalLogin = async (e) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+
+    try {
+      const result = await login({ username, password });
+      if (!result.success) {
+        setError(result.error || 'Login failed');
+      }
+    } catch (err) {
+      setError(err.message || 'Login failed');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSuccess = async (token) => {
+    setError('');
+    setIsLoading(true);
+    
+    try {
+      const result = await googleLogin(token);
+      if (!result.success) {
+        setError(result.error || 'Google login failed');
+      }
+    } catch (err) {
+      setError(err.message || 'Google login failed');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleError = (errorMessage) => {
+    setError(errorMessage);
+    setIsLoading(false);
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
+      <div className="max-w-md w-full">
+        <div className="bg-white rounded-2xl shadow-2xl p-8">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full mb-4">
+              <Brain className="h-8 w-8 text-white" />
+            </div>
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">AI Lottery Predictor</h1>
+            <p className="text-gray-600">Sign in to continue</p>
+          </div>
+
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-3">
+              <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          )}
+
+          {/* Google Sign-In Button */}
+          {GOOGLE_CLIENT_ID && (
+            <div className="mb-6">
+              <GoogleSignInButton 
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
+                disabled={isLoading}
+              />
+            </div>
+          )}
+
+          {/* Divider */}
+          {GOOGLE_CLIENT_ID && (
+            <div className="relative mb-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-4 bg-white text-gray-500">Or continue with</span>
+              </div>
+            </div>
+          )}
+
+          {/* Traditional Login Form */}
+          <form onSubmit={handleTraditionalLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                <User className="inline h-4 w-4 mr-1" />
+                Username
+              </label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                placeholder="Enter username"
+                required
+                disabled={isLoading}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                <Lock className="inline h-4 w-4 mr-1" />
+                Password
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                placeholder="Enter password"
+                required
+                disabled={isLoading}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full py-3 px-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg font-semibold hover:shadow-lg hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Signing in...</span>
+                </>
+              ) : (
+                <>
+                  <Shield className="h-5 w-5" />
+                  <span>Sign In</span>
+                </>
+              )}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center text-sm text-gray-600">
+            <p>Demo: admin / admin123</p>
+          </div>
+        </div>
+
+        <div className="mt-4 text-center text-sm text-gray-500">
+          <p>Powered by AI Algorithms</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // User Menu 
 const UserMenu = () => {
   const { user, isAuthenticated, isAdmin, logout } = useAuth();
@@ -2899,7 +3141,26 @@ const generateMockAutomation = (gameType, multiplier) => {
 
 // Main App
 function App() {
-  const { isLoading: authLoading } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  
+  // Show login screen first if not authenticated
+  if (!isAuthenticated && !authLoading) {
+    return <GoogleLoginScreen />;
+  }
+
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-blue-500 mx-auto mb-4" />
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Main app for authenticated users
   const [selectedGame, setSelectedGame] = useState(null);
   const [predictions, setPredictions] = useState({});
   const [isLoading, setIsLoading] = useState(false);

@@ -3,6 +3,10 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const db = require('../models_mongoose');
 const dbService = require('../services/databaseService');
+const { OAuth2Client } = require('google-auth-library');
+
+// Initialize Google OAuth client
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // ============================================
 // AUTH ROUTES
@@ -87,6 +91,165 @@ router.post('/register', async (req, res) => {
   }
 });
 
+// POST /api/auth/google - Google OAuth Login
+router.post('/google', async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: 'Google token is required'
+      });
+    }
+
+    console.log('🔐 Google OAuth login attempt...');
+
+    // Verify the Google token
+    const ticket = await googleClient.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    const { email, name, picture, sub: googleId, email_verified } = payload;
+
+    console.log(`✅ Google token verified for: ${email}`);
+
+    // Check if email is verified
+    if (!email_verified) {
+      return res.status(403).json({
+        success: false,
+        message: 'Email not verified by Google'
+      });
+    }
+
+    // Check if user exists by email or googleId
+    let user = await db.User.findOne({ 
+      $or: [
+        { email: email.toLowerCase() },
+        { googleId: googleId }
+      ]
+    });
+
+    if (!user) {
+      // Create new user from Google account
+      const username = email.split('@')[0].toLowerCase() + '_google';
+      
+      // Check if username exists, if so add random suffix
+      let finalUsername = username;
+      let existingUser = await db.User.findOne({ username: finalUsername });
+      if (existingUser) {
+        finalUsername = username + '_' + Math.random().toString(36).substring(7);
+      }
+      
+      // ✅ Get next available _id (for your custom Number _id system)
+      const lastUser = await db.User.findOne().sort({ _id: -1 });
+      const nextId = lastUser ? lastUser._id + 1 : 1;
+      
+      user = await db.User.create({
+        _id: nextId,  // ✅ Add custom _id
+        username: finalUsername,
+        email: email.toLowerCase(),
+        name: name || finalUsername,
+        googleId: googleId,
+        profilePicture: picture,
+        role: 'user', // Default role for new Google users
+        authProvider: 'google',
+        password: null, // No password for Google auth users
+        isActive: true,
+        lastLogin: new Date()
+      });
+
+      console.log(`✅ New user created via Google OAuth: ${email} (ID: ${nextId})`);
+    } else {
+      // Update existing user's Google info
+      user.googleId = googleId;
+      user.profilePicture = picture;
+      user.name = name || user.name;
+      user.authProvider = 'google';
+      user.lastLogin = new Date();
+      await user.save();
+
+      console.log(`✅ Existing user logged in via Google: ${email}`);
+    }
+
+    // Create session - Store both formats for compatibility
+    req.session.userId = user._id.toString();
+    req.session.user = {
+      id: user._id.toString(),
+      _id: user._id.toString(),
+      username: user.username,
+      email: user.email,
+      role: user.role,
+      profilePicture: user.profilePicture,
+      authProvider: 'google'
+    };
+
+    // Force session save
+    await new Promise((resolve, reject) => {
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error:', err);
+          reject(err);
+        } else {
+          console.log(`✅ Session saved for Google user: ${user.username}, sessionID: ${req.sessionID}`);
+          resolve();
+        }
+      });
+    });
+
+    // Log admin action if admin
+    if (user.role === 'admin') {
+      await dbService.logAdminAction(
+        user._id,
+        'GOOGLE_LOGIN',
+        { username: user.username, email: user.email },
+        req
+      );
+    }
+
+    // Return user data
+    res.json({
+      success: true,
+      message: 'Google login successful',
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        profilePicture: user.profilePicture,
+        authProvider: 'google'
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Google auth error:', error);
+    
+    // Handle specific errors
+    if (error.message && error.message.includes('Token used too late')) {
+      return res.status(401).json({
+        success: false,
+        message: 'Google token expired. Please try again.'
+      });
+    }
+
+    if (error.message && error.message.includes('Invalid token')) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid Google token'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Google authentication failed',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
   try {
@@ -120,6 +283,14 @@ router.post('/login', async (req, res) => {
       return res.status(403).json({
         success: false,
         error: 'Account is disabled'
+      });
+    }
+    
+    // Check if user is Google-only account (no password)
+    if (user.authProvider === 'google' && !user.password) {
+      return res.status(401).json({
+        success: false,
+        error: 'Please sign in with Google for this account'
       });
     }
     
