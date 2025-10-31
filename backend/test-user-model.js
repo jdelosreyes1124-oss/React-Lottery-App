@@ -1,7 +1,7 @@
 // test-user-model.js
 require('dotenv').config();
 const mongoose = require('mongoose');
-const User = require('./models/User');
+const User = require('./models_mongoose/User.js');
 
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => {

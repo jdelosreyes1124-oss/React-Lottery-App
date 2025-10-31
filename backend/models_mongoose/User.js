@@ -63,9 +63,6 @@ userSchema.pre('validate', function(next) {
   next();
 });
 
-// Indexes for performance
-userSchema.index({ email: 1 });
-userSchema.index({ googleId: 1 });
-userSchema.index({ username: 1 });
+
 
 module.exports = mongoose.model('User', userSchema, 'users');
