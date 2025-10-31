@@ -1,5 +1,4 @@
-// Add this log to be 100% certain the file is updated
-console.log("✅✅✅ USER.JS MODEL - VERSION FINAL-FIX ✅✅✅");
+// models_mongoose/User.js
 
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
@@ -9,16 +8,14 @@ const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true, trim: true },
   email: { type: String, unique: true, sparse: true, trim: true },
   
-  // ✅ FINAL FIX: Simplified and hardened the conditional logic.
+  // Hardened conditional logic: A password is required ONLY if there is no googleId.
   password: { 
     type: String, 
     required: function() {
-      // A password is required ONLY if the user does NOT have a googleId.
       return !this.googleId;
     }
   },
   
-  // Consolidated Google OAuth and user fields.
   googleId: { type: String, unique: true, sparse: true },
   name: { type: String },
   profilePicture: { type: String },
@@ -27,8 +24,6 @@ const userSchema = new mongoose.Schema({
     enum: ['local', 'google'], 
     default: 'local' 
   },
-  
-  // Standard user fields
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
   isActive: { type: Boolean, default: true },
   lastLogin: Date
@@ -36,7 +31,7 @@ const userSchema = new mongoose.Schema({
   timestamps: true 
 });
 
-// Pre-validation hook to ensure authProvider is set correctly.
+// Pre-validation hook to ensure data consistency.
 userSchema.pre('validate', function(next) {
   if (this.googleId) {
     this.authProvider = 'google';
@@ -46,5 +41,5 @@ userSchema.pre('validate', function(next) {
   next();
 });
 
-// This is the standard, error-proof way to export a Mongoose model.
+// Standard, error-proof way to export a Mongoose model to prevent overwrite errors.
 module.exports = mongoose.models.User || mongoose.model('User', userSchema, 'users');
