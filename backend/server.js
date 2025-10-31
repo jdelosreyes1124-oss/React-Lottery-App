@@ -1,3 +1,5 @@
+console.log("✅✅✅ SERVER.JS - VERSION 2025-10-31-B ✅✅✅");
+
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
