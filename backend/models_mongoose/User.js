@@ -7,16 +7,20 @@ const userSchema = new mongoose.Schema({
   email: { type: String, unique: true, sparse: true },
   password: { 
     type: String, 
+    // ✅ FIX: Make the password conditionally required
     required: function() {
-      // Password is NOT required if:
-      // 1. User has a googleId (Google OAuth user)
-      // 2. authProvider is explicitly 'google'
-      if (this.googleId || this.authProvider === 'google') {
-        return false;
-      }
-      // Password IS required for local/traditional auth
-      return true;
+      // Password is NOT required if the user signs in with Google.
+      // We check for the presence of a googleId or if the authProvider is 'google'.
+      return !(this.googleId || this.authProvider === 'google');
     }
+  },
+  
+  // ... Google OAuth fields and other existing fields ...
+  googleId: { type: String, unique: true, sparse: true },
+  authProvider: { 
+    type: String, 
+    enum: ['local', 'google'], 
+    default: 'local' 
   },
   
   // ✅ NEW: Google OAuth fields
