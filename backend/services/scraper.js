@@ -1,10 +1,11 @@
 /**
  * Web Scraper Service for Taiwan Daily Cash 539 (History Page)
- * Updated for Render.com deployment
+ * Updated for Render.com deployment with @sparticuz/chromium
  * services/scraper.js
  */
 
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
+const chromium = require('@sparticuz/chromium');
 
 class LotteryScraperService {
   constructor() {
@@ -84,37 +85,53 @@ class LotteryScraperService {
     }
   }
 
-   async launchBrowser() {
+  async launchBrowser() {
     try {
-      console.log('🔍 Launching browser with Puppeteer bundled Chromium...');
+      console.log('🚀 Launching browser...');
       
-      const options = {
-        headless: 'new',
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--disable-gpu',
-          '--disable-software-rasterizer',
-          '--window-size=1920,1080',
-          '--single-process',
-          '--no-zygote'
-        ],
-        ignoreHTTPSErrors: true,
-        defaultViewport: {
-          width: 1920,
-          height: 1080
-        }
-      };
+      // Check if running in production (Render) or local development
+      const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER;
+      
+      let options;
+      
+      if (isProduction) {
+        console.log('📦 Using @sparticuz/chromium for production...');
+        
+        options = {
+          args: chromium.args,
+          defaultViewport: chromium.defaultViewport,
+          executablePath: await chromium.executablePath(),
+          headless: chromium.headless,
+          ignoreHTTPSErrors: true,
+        };
+      } else {
+        console.log('💻 Using local Puppeteer for development...');
+        
+        // Try to use local Puppeteer installation
+        const puppeteerLocal = require('puppeteer');
+        const browser = await puppeteerLocal.launch({
+          headless: 'new',
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--disable-gpu',
+            '--window-size=1920,1080'
+          ],
+          ignoreHTTPSErrors: true,
+          defaultViewport: {
+            width: 1920,
+            height: 1080
+          }
+        });
+        
+        const version = await browser.version();
+        console.log('✅ Browser launched successfully:', version);
+        return browser;
+      }
 
-      // Let Puppeteer use its bundled Chromium
-      // Don't specify executablePath
-
-      console.log('🔧 Browser options:', {
-        headless: options.headless,
-        args: options.args.length + ' args'
-      });
+      console.log('🔧 Browser options configured');
 
       const browser = await puppeteer.launch(options);
       const version = await browser.version();

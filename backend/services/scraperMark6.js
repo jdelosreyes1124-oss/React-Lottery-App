@@ -1,10 +1,11 @@
 /**
  * Web Scraper Service for Hong Kong Mark Six
- * Updated for Render.com deployment
+ * Updated for Render.com deployment with @sparticuz/chromium
  * services/scraperMark6.js
  */
 
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
+const chromium = require('@sparticuz/chromium');
 
 class Mark6ScraperService {
   constructor() {
@@ -36,27 +37,60 @@ class Mark6ScraperService {
     }
   }
 
- async launchBrowser() {
-    const args = [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--no-first-run',
-      '--no-zygote',
-      '--single-process',
-      '--disable-extensions'
-    ];
-    
-    const options = {
-      headless: this.headless,
-      args: args
-    };
-    
-    // Remove executablePath - let Puppeteer use bundled Chromium
-    
-    return await puppeteer.launch(options);
+  async launchBrowser() {
+    try {
+      console.log('🚀 Launching browser for Mark 6...');
+      
+      // Check if running in production (Render) or local development
+      const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER;
+      
+      let options;
+      
+      if (isProduction) {
+        console.log('📦 Using @sparticuz/chromium for production...');
+        
+        options = {
+          args: chromium.args,
+          defaultViewport: chromium.defaultViewport,
+          executablePath: await chromium.executablePath(),
+          headless: chromium.headless,
+          ignoreHTTPSErrors: true,
+        };
+      } else {
+        console.log('💻 Using local Puppeteer for development...');
+        
+        // Try to use local Puppeteer installation
+        const puppeteerLocal = require('puppeteer');
+        const browser = await puppeteerLocal.launch({
+          headless: this.headless,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
+            '--disable-extensions'
+          ],
+          ignoreHTTPSErrors: true,
+        });
+        
+        const version = await browser.version();
+        console.log('✅ Browser launched successfully:', version);
+        return browser;
+      }
+
+      const browser = await puppeteer.launch(options);
+      const version = await browser.version();
+      console.log('✅ Browser launched successfully:', version);
+      return browser;
+    } catch (error) {
+      console.error('❌ Failed to launch browser:', error);
+      throw error;
+    }
   }
+
   async createPage(browser) {
     const page = await browser.newPage();
     await page.setViewport({ width: 1920, height: 1080 });
