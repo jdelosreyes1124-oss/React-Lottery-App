@@ -2384,12 +2384,24 @@ const sortedResults = [...resultsData].sort((a, b) => {
 
 // Always set the results regardless of success flag
 if (resultsData.length > 0 || !isLoading) {
+  // When appending, combine arrays and re-sort to maintain proper date order
+  const combinedResults = append 
+    ? [...(prev[gameType]?.results || []), ...sortedResults]
+    : sortedResults;
+  
+  // Re-sort combined results to ensure proper date order across pagination
+  const finalResults = append 
+    ? combinedResults.sort((a, b) => {
+        const dateA = new Date(a.drawDate);
+        const dateB = new Date(b.drawDate);
+        return dateB - dateA; // Descending order (newest first)
+      })
+    : combinedResults;
+  
   setHistoricalResults(prev => ({
     ...prev,
     [gameType]: {
-      results: append 
-        ? [...(prev[gameType]?.results || []), ...sortedResults]
-        : sortedResults
+      results: finalResults
     }
   }));
         
