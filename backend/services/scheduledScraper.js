@@ -629,7 +629,7 @@ async function triggerScrape(gameType) {
           }).select('drawDate').lean();
           
           const existingDateStrings = new Set(
-            existingDates.map(d => d.drawDate.toISOString().split('T')[0])
+            existingDates.map(d => new Date(d.drawDate).toISOString().split('T')[0])
           );
           
           console.log(`📊 Database has ${existingDateStrings.size} existing results`);
