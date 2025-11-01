@@ -29,11 +29,11 @@ class LotteryScraperService {
       console.log('📄 Loaded latest results page');
 
       // Wait for results table
-      await page.waitForSelector('table.history-table', { timeout: this.timeout });
+      await page.waitForSelector('table', { timeout: this.timeout });
 
       // Extract first row data
       const latestResult = await page.evaluate(() => {
-        const rows = document.querySelectorAll('table.history-table tbody tr');
+        const rows = document.querySelectorAll('table tbody tr, table tr');
         if (rows.length === 0) return null;
 
         const firstRow = rows[0];
