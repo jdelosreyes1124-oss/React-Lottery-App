@@ -312,7 +312,7 @@ router.get('/historical-results/539', async (req, res) => {
       const date = new Date(result.drawDate);
       return {
         id: index,
-        drawDate: date.toLocaleDateString('en-US'),
+        drawDate: date.toISOString().split('T')[0], // Return YYYY-MM-DD format for proper sorting
         numbers: result.numbers
       };
     });
@@ -444,7 +444,7 @@ router.post('/historical-results/539/add', async (req, res) => {
 
     const formattedResults = allResults.map((result, index) => ({
       id: index,
-      drawDate: new Date(result.drawDate).toLocaleDateString('en-US'),
+      drawDate: new Date(result.drawDate).toISOString().split('T')[0],
       numbers: result.numbers
     }));
 
@@ -454,7 +454,7 @@ router.post('/historical-results/539/add', async (req, res) => {
       result: {
         _id: newResult._id,
         id: 0,
-        drawDate: parsedDate.toLocaleDateString('en-US'),
+        drawDate: parsedDate.toISOString().split('T')[0],
         numbers: sortedNumbers
       },
       results: formattedResults,
@@ -515,7 +515,7 @@ router.delete('/historical-results/539/:id', async (req, res) => {
 
     const formattedResults = updatedResults.map((result, index) => ({
       id: index,
-      drawDate: new Date(result.drawDate).toLocaleDateString('en-US'),
+      drawDate: new Date(result.drawDate).toISOString().split('T')[0],
       numbers: result.numbers
     }));
 
@@ -524,7 +524,7 @@ router.delete('/historical-results/539/:id', async (req, res) => {
       message: 'Result deleted successfully',
       deletedItem: {
         id: id,
-        drawDate: new Date(deletedResult.drawDate).toLocaleDateString('en-US'),
+        drawDate: new Date(deletedResult.drawDate).toISOString().split('T')[0],
         numbers: deletedResult.numbers
       },
       results: formattedResults,
