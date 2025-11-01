@@ -647,8 +647,8 @@ async function triggerScrape(gameType) {
           
           // Save all new results
           if (newResults && newResults.length > 0) {
-            // Sort by date (oldest first) for better logging
-            newResults.sort((a, b) => new Date(a.drawDate) - new Date(b.drawDate));
+            // Sort by date (newest first) - prioritize latest results
+            newResults.sort((a, b) => new Date(b.drawDate) - new Date(a.drawDate));
             
             console.log(`💾 Saving ${newResults.length} new results to database...`);
             

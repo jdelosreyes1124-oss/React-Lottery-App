@@ -2373,18 +2373,25 @@ const AdminPanel = ({ onClose }) => {
         resultsData = data.docs;
       }
       
-      console.log('Extracted results data:', resultsData.length, 'items');
-      
-      // Always set the results regardless of success flag
-      if (resultsData.length > 0 || !isLoading) {
-        setHistoricalResults(prev => ({
-          ...prev,
-          [gameType]: {
-            results: append 
-              ? [...(prev[gameType]?.results || []), ...resultsData]
-              : resultsData
-          }
-        }));
+   console.log('Extracted results data:', resultsData.length, 'items');
+
+// Sort results by date (newest first)
+const sortedResults = [...resultsData].sort((a, b) => {
+  const dateA = new Date(a.drawDate);
+  const dateB = new Date(b.drawDate);
+  return dateB - dateA; // Descending order (newest first)
+});
+
+// Always set the results regardless of success flag
+if (resultsData.length > 0 || !isLoading) {
+  setHistoricalResults(prev => ({
+    ...prev,
+    [gameType]: {
+      results: append 
+        ? [...(prev[gameType]?.results || []), ...sortedResults]
+        : sortedResults
+    }
+  }));
         
         // Handle pagination
         if (data.pagination) {
