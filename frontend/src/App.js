@@ -2375,35 +2375,64 @@ const AdminPanel = ({ onClose }) => {
       
    console.log('Extracted results data:', resultsData.length, 'items');
 
-// Sort results by date (newest first)
+// Helper function to safely parse dates
+const parseDate = (dateStr) => {
+  if (!dateStr) return new Date(0); // Return epoch if no date
+  const date = new Date(dateStr);
+  // Check if date is valid
+  if (isNaN(date.getTime())) {
+    console.warn('Invalid date:', dateStr);
+    return new Date(0);
+  }
+  return date;
+};
+
+// Sort results by date (newest first) with logging
 const sortedResults = [...resultsData].sort((a, b) => {
-  const dateA = new Date(a.drawDate);
-  const dateB = new Date(b.drawDate);
-  return dateB - dateA; // Descending order (newest first)
+  const dateA = parseDate(a.drawDate);
+  const dateB = parseDate(b.drawDate);
+  return dateB.getTime() - dateA.getTime(); // Descending order (newest first)
 });
+
+// Log first few dates for debugging
+if (sortedResults.length > 0) {
+  console.log('First 3 sorted dates:', 
+    sortedResults.slice(0, 3).map(r => r.drawDate)
+  );
+}
 
 // Always set the results regardless of success flag
 if (resultsData.length > 0 || !isLoading) {
-  // When appending, combine arrays and re-sort to maintain proper date order
-  const combinedResults = append 
-    ? [...(prev[gameType]?.results || []), ...sortedResults]
-    : sortedResults;
-  
-  // Re-sort combined results to ensure proper date order across pagination
-  const finalResults = append 
-    ? combinedResults.sort((a, b) => {
-        const dateA = new Date(a.drawDate);
-        const dateB = new Date(b.drawDate);
-        return dateB - dateA; // Descending order (newest first)
-      })
-    : combinedResults;
-  
-  setHistoricalResults(prev => ({
-    ...prev,
-    [gameType]: {
-      results: finalResults
+  setHistoricalResults(prev => {
+    // When appending, combine arrays and re-sort to maintain proper date order
+    const existingResults = prev[gameType]?.results || [];
+    const combinedResults = append 
+      ? [...existingResults, ...sortedResults]
+      : sortedResults;
+    
+    // Re-sort combined results to ensure proper date order across pagination
+    const finalResults = append 
+      ? combinedResults.sort((a, b) => {
+          const dateA = parseDate(a.drawDate);
+          const dateB = parseDate(b.drawDate);
+          return dateB.getTime() - dateA.getTime(); // Descending order (newest first)
+        })
+      : combinedResults;
+    
+    // Log after sorting
+    if (finalResults.length > 0) {
+      console.log('Final sorted - First 5 dates:', 
+        finalResults.slice(0, 5).map(r => r.drawDate)
+      );
     }
-  }));
+    
+    return {
+      ...prev,
+      [gameType]: {
+        results: finalResults
+      }
+    };
+  });
         
         // Handle pagination
         if (data.pagination) {
