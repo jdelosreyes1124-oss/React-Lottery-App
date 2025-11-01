@@ -1,3 +1,5 @@
+console.log('🔥🔥🔥 HISTORICAL RESULTS ROUTE LOADED - ISO FORMAT VERSION 🔥🔥🔥');
+
 const express = require('express');
 const mongoose = require('mongoose');
 const { ObjectId } = require('mongoose').Types;
