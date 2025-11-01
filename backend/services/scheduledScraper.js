@@ -597,64 +597,111 @@ async function triggerScrape(gameType) {
     switch (gameType) {
       case '539':
         try {
-          console.log('🎲 Starting 539 scraper...');
+          console.log('🎲 Starting 539 scraper for all missing data...');
           
-          // Verify scraper is properly initialized with required methods
-          if (!scraper539 || typeof scraper539.scrapeLatestResults !== 'function') {
+          // Verify scraper is properly initialized
+          if (!scraper539 || typeof scraper539.scrapeResults !== 'function') {
             console.error('❌ Scraper initialization error:', scraper539);
             throw new Error('539 scraper not properly initialized');
           }
           
-          results = await scraper539.scrapeLatestResults();
-          console.log('📊 Scraping completed:', results);
+          // Get the most recent date we have in the database
+          const mostRecentResult = await db.LotteryResult.findOne({
+            gameType: '539'
+          })
+          .sort({ drawDate: -1 })
+          .lean();
           
-          // Save results to database
-          if (results && results.length > 0) {
-            const result = results[0];
-            const { drawDate, numbers } = result;
+          const mostRecentDate = mostRecentResult ? new Date(mostRecentResult.drawDate) : null;
+          console.log('📅 Most recent date in DB:', mostRecentDate ? mostRecentDate.toISOString().split('T')[0] : 'None (empty database)');
+          
+          // Scrape multiple results (500 should be enough to catch up on missing data)
+          console.log('🔍 Scraping up to 500 results from history...');
+          results = await scraper539.scrapeResults(500);
+          console.log(`📊 Scraping completed: ${results.length} results found`);
+          
+          // Filter to only keep results that are newer than what we have
+          let newResults = results;
+          if (mostRecentDate) {
+            newResults = results.filter(r => {
+              const resultDate = new Date(r.drawDate);
+              return resultDate > mostRecentDate;
+            });
+            console.log(`🆕 Found ${newResults.length} new results (after ${mostRecentDate.toISOString().split('T')[0]})`);
+          } else {
+            console.log(`🆕 Database is empty, will save all ${newResults.length} results`);
+          }
+          
+          // Save all new results
+          if (newResults && newResults.length > 0) {
+            // Get existing dates to avoid duplicates
+            const existingDates = await db.LotteryResult.find({
+              gameType: '539',
+              drawDate: { $in: newResults.map(r => new Date(r.drawDate)) }
+            }).select('drawDate').lean();
             
-            // Validate result data
-            if (!drawDate || !numbers || numbers.length !== 5) {
-              throw new Error('Invalid scraped data format');
-            }
+            const existingDateStrings = new Set(
+              existingDates.map(d => d.drawDate.toISOString().split('T')[0])
+            );
             
-            // Find the highest numeric _id
+            // Filter out any that already exist
+            const resultsToSave = newResults.filter(r => {
+              const dateStr = new Date(r.drawDate).toISOString().split('T')[0];
+              return !existingDateStrings.has(dateStr);
+            });
+            
+            console.log(`💾 Saving ${resultsToSave.length} new results to database...`);
+            
+            // Find the highest numeric _id for sequential numbering
             const lastResult = await db.LotteryResult.findOne({
               _id: { $type: "number" }
             })
             .sort({ _id: -1 })
             .lean();
             
-            const nextId = (lastResult?._id || 10010) + 1;
+            let nextId = (lastResult?._id || 10010) + 1;
             
-            // Check for existing result on the same date
-            const existingResult = await db.LotteryResult.findOne({
-              gameType: '539',
-              drawDate: new Date(drawDate)
-            });
-
-            if (existingResult) {
-              console.log('⚠️ Result for date already exists:', drawDate);
-              throw new Error(`Result for ${drawDate} already exists`);
+            // Create and save all new results
+            let savedCount = 0;
+            for (const result of resultsToSave) {
+              const { drawDate, numbers } = result;
+              
+              // Validate result data
+              if (!drawDate || !numbers || numbers.length !== 5) {
+                console.log(`⚠️ Skipping invalid result:`, result);
+                continue;
+              }
+              
+              // Create new lottery result
+              const newResult = new db.LotteryResult({
+                _id: nextId,
+                gameType: '539',
+                drawDate: new Date(drawDate),
+                numbers: numbers,
+                source: 'web_scraper'
+              });
+              
+              try {
+                await newResult.save();
+                console.log(`  ✅ Saved: ${drawDate} [${numbers.join(', ')}] (ID: ${nextId})`);
+                savedCount++;
+                nextId++;
+              } catch (saveError) {
+                console.log(`  ⚠️ Failed to save ${drawDate}:`, saveError.message);
+              }
             }
             
-            // Create new lottery result
-            const newResult = new db.LotteryResult({
-              _id: nextId,
-              gameType: '539',
-              drawDate: new Date(drawDate),
-              numbers: numbers,
-              source: 'web_scraper'
-            });
-            
-            await newResult.save();
-            console.log('✅ Saved new result with ID:', nextId);
+            console.log(`🎉 Successfully saved ${savedCount} new results!`);
             
             // Update scheduler state
             schedulerState[gameType].lastRun = new Date();
             schedulerState[gameType].status = 'success';
+            schedulerState[gameType].lastMessage = `Saved ${savedCount} new results`;
           } else {
-            throw new Error('No results returned from scraper');
+            console.log('✅ No new results to save - database is up to date!');
+            schedulerState[gameType].lastRun = new Date();
+            schedulerState[gameType].status = 'success';
+            schedulerState[gameType].lastMessage = 'Database already up to date';
           }
         } catch (error) {
           console.error('❌ Error during 539 scraping/saving:', error);
