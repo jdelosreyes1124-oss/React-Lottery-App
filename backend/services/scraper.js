@@ -8,12 +8,20 @@ const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
 
 class LotteryScraperService {
-  constructor() {
-    this.baseUrl = 'https://en.lottolyzer.com/history/taiwan/daily-cash-539/page/PAGE_NUM/per-page/50/summary-view';
-    this.latestUrl = 'https://en.lottolyzer.com/history/taiwan/daily-cash-539/summary-view';
-    this.timeout = 60000;
+  constructor(config) {
+    // Allow configuration override
+    if (config) {
+      this.baseUrl = config.baseUrl || 'https://en.lottolyzer.com/history/taiwan/daily-cash-539/page/PAGE_NUM/per-page/50/summary-view';
+      this.latestUrl = config.latestUrl || 'https://en.lottolyzer.com/history/taiwan/daily-cash-539/summary-view';
+      this.timeout = config.timeout || 60000;
+      this.maxPages = config.maxPages || 102;
+    } else {
+      this.baseUrl = 'https://en.lottolyzer.com/history/taiwan/daily-cash-539/page/PAGE_NUM/per-page/50/summary-view';
+      this.latestUrl = 'https://en.lottolyzer.com/history/taiwan/daily-cash-539/summary-view';
+      this.timeout = 60000;
+      this.maxPages = 102;
+    }
     this.headless = "new";
-    this.maxPages = 102;
   }
 
   async scrapeLatestResults() {
@@ -31,24 +39,15 @@ class LotteryScraperService {
       // Wait for results table
       await page.waitForSelector('table', { timeout: this.timeout });
 
-      // Extract first row data
-      const latestResult = await page.evaluate(() => {
-        const rows = document.querySelectorAll('table tbody tr, table tr');
-        if (rows.length === 0) return null;
+      // Use the same extraction method as extractFromHistoryPage
+      const results = await this.extractFromHistoryPage(page);
 
-        const firstRow = rows[0];
-        const cells = firstRow.querySelectorAll('td');
-        
-        return {
-          drawDate: cells[0].innerText.trim(),
-          numbers: Array.from(cells[1].querySelectorAll('.number')).map(n => parseInt(n.innerText.trim())).filter(n => !isNaN(n))
-        };
-      });
-
-      if (!latestResult) {
+      if (!results || results.length === 0) {
         throw new Error('No results found on the page');
       }
 
+      // Return only the first (latest) result
+      const latestResult = results[0];
       console.log('✅ Scraped latest result:', latestResult);
       return [latestResult];
     } catch (error) {
