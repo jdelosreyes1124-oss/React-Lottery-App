@@ -180,7 +180,7 @@ class LotteryScraperService {
         console.log(`   Extracted: ${pageResults.length} results`);
         
         if (pageNum === 1 && pageResults.length > 0) {
-          console.log(`   🎯 Latest result: ${pageResults[0].date} - [${pageResults[0].numbers.join(', ')}]`);
+          console.log(`   🎯 Latest result: ${pageResults[0].drawDate} - [${pageResults[0].numbers.join(', ')}]`);
         }
         
         if (pageResults.length === 0) {
@@ -192,7 +192,7 @@ class LotteryScraperService {
         for (const result of pageResults) {
           if (allResults.length >= maxResults) break;
           
-          if (!allResults.some(r => r.date === result.date)) {
+          if (!allResults.some(r => r.drawDate === result.drawDate)) {
             allResults.push(result);
             added++;
           }
@@ -309,7 +309,7 @@ class LotteryScraperService {
           // Valid result must have date and exactly 5
           if (date && numbers.length === 5) {
             results.push({
-              date,
+              drawDate: date,
               numbers: numbers.sort((a, b) => a - b),
               source: 'lottolyzer-history',
               scrapedAt: new Date().toISOString()
@@ -334,10 +334,10 @@ class LotteryScraperService {
     const seenDates = new Set();
     
     results.forEach((result, index) => {
-      if (seenDates.has(result.date)) {
+      if (seenDates.has(result.drawDate)) {
         report.duplicates++;
       }
-      seenDates.add(result.date);
+      seenDates.add(result.drawDate);
       
       if (!result.numbers || result.numbers.length !== 5) {
         report.invalid++;
@@ -393,7 +393,7 @@ class LotteryScraperService {
       console.log(`\n✅ Found ${results.length} results`);
       console.log('\nFirst 3 results:');
       results.slice(0, 3).forEach((r, i) => {
-        console.log(`  ${i+1}. ${r.date}: [${r.numbers.join(', ')}]`);
+        console.log(`  ${i+1}. ${r.drawDate}: [${r.numbers.join(', ')}]`);
       });
       
       return results;
