@@ -620,37 +620,37 @@ async function triggerScrape(gameType) {
           results = await scraper539.scrapeResults(500);
           console.log(`📊 Scraping completed: ${results.length} results found`);
           
-          // Filter to only keep results that are newer than what we have
-          let newResults = results;
+          // Instead of filtering by date, get ALL existing dates from database
+          // This way we fill gaps in ANY direction (older, newer, or in-between)
+          console.log('🔍 Checking which results are already in database...');
+          
+          const existingDates = await db.LotteryResult.find({
+            gameType: '539'
+          }).select('drawDate').lean();
+          
+          const existingDateStrings = new Set(
+            existingDates.map(d => d.drawDate.toISOString().split('T')[0])
+          );
+          
+          console.log(`📊 Database has ${existingDateStrings.size} existing results`);
+          
+          // Filter to keep only results that DON'T exist in database
+          const newResults = results.filter(r => {
+            const dateStr = new Date(r.drawDate).toISOString().split('T')[0];
+            return !existingDateStrings.has(dateStr);
+          });
+          
           if (mostRecentDate) {
-            newResults = results.filter(r => {
-              const resultDate = new Date(r.drawDate);
-              return resultDate > mostRecentDate;
-            });
-            console.log(`🆕 Found ${newResults.length} new results (after ${mostRecentDate.toISOString().split('T')[0]})`);
-          } else {
-            console.log(`🆕 Database is empty, will save all ${newResults.length} results`);
+            console.log(`📅 Date range in DB: oldest to ${mostRecentDate.toISOString().split('T')[0]}`);
           }
+          console.log(`🆕 Found ${newResults.length} missing results to save`);
           
           // Save all new results
           if (newResults && newResults.length > 0) {
-            // Get existing dates to avoid duplicates
-            const existingDates = await db.LotteryResult.find({
-              gameType: '539',
-              drawDate: { $in: newResults.map(r => new Date(r.drawDate)) }
-            }).select('drawDate').lean();
+            // Sort by date (oldest first) for better logging
+            newResults.sort((a, b) => new Date(a.drawDate) - new Date(b.drawDate));
             
-            const existingDateStrings = new Set(
-              existingDates.map(d => d.drawDate.toISOString().split('T')[0])
-            );
-            
-            // Filter out any that already exist
-            const resultsToSave = newResults.filter(r => {
-              const dateStr = new Date(r.drawDate).toISOString().split('T')[0];
-              return !existingDateStrings.has(dateStr);
-            });
-            
-            console.log(`💾 Saving ${resultsToSave.length} new results to database...`);
+            console.log(`💾 Saving ${newResults.length} new results to database...`);
             
             // Find the highest numeric _id for sequential numbering
             const lastResult = await db.LotteryResult.findOne({
@@ -663,7 +663,7 @@ async function triggerScrape(gameType) {
             
             // Create and save all new results
             let savedCount = 0;
-            for (const result of resultsToSave) {
+            for (const result of newResults) {
               const { drawDate, numbers } = result;
               
               // Validate result data
