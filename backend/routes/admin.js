@@ -246,12 +246,12 @@ async function syncExcelWithDB(filePath, gameType) {
 // ============================================
 
 // GET /api/admin/historical-results/:gameType
-router.get('/historical-results/:gameType', requireAuth, requireAdmin, async (req, res) => {
+// POST /api/admin/historical-results/:gameType/sync
+router.post('/historical-results/:gameType/sync', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { gameType } = req.params;
-    const { page = 1, limit = 50 } = req.query;
     
-    console.log(`📊 Fetching historical results - Game: ${gameType}, Page: ${page}, Limit: ${limit}`);
+    console.log(`[SYNC] Manual sync requested for ${gameType}...`);
     
     // Validate game type
     const validGames = ['539', 'mark6', 'lotto649'];
@@ -259,45 +259,129 @@ router.get('/historical-results/:gameType', requireAuth, requireAdmin, async (re
       return res.status(400).json({ 
         success: false,
         error: 'Invalid game type',
-        validTypes: validGames,
-        received: gameType
+        validTypes: validGames
       });
     }
-
-    // Calculate pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    // Fetch results with pagination
+    // Fetch all results sorted by newest first
     const results = await db.LotteryResult
       .find({ gameType })
       .sort({ drawDate: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
       .lean();
-
-    // Get total count for pagination
-    const total = await db.LotteryResult.countDocuments({ gameType });
-
-    console.log(`✅ Found ${results.length} results out of ${total} total`);
-
+    
+    // Format results
+    const formattedResults = results.map((result, index) => ({
+      id: index,
+      _id: result._id,
+      drawDate: new Date(result.drawDate).toISOString().split('T')[0],
+      numbers: result.numbers,
+      bonus: result.bonus || null
+    }));
+    
+    console.log(`[SYNC] Sync completed. Returning ${formattedResults.length} results sorted by newest first`);
+    
+    // Log the action
+    const userId = req.session.userId || req.session.user?.id;
+    if (userId) {
+      await dbService.logAdminAction(
+        userId,
+        'SYNC_HISTORICAL_RESULTS',
+        { gameType, resultCount: formattedResults.length },
+        req
+      );
+    }
+    
     res.json({
       success: true,
-      data: results || [],
+      message: `Sync completed for ${gameType}. Results sorted newest first.`,
+      data: formattedResults,
+      total: formattedResults.length,
       pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / parseInt(limit)),
-        hasMore: skip + results.length < total
+        total: formattedResults.length,
+        page: 1,
+        limit: formattedResults.length,
+        pages: 1
       }
     });
+    
   } catch (error) {
-    console.error('❌ Error fetching historical results:', error);
-    res.status(500).json({ 
+    console.error('[SYNC] Error:', error);
+    res.status(500).json({
       success: false,
-      error: 'Failed to fetch historical results',
+      error: 'Sync failed',
       message: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      data: [],
+      total: 0
+    });
+  }
+});
+
+// POST /api/admin/historical-results/:gameType/force-sync
+router.post('/historical-results/:gameType/force-sync', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { gameType } = req.params;
+    
+    console.log(`[FORCE-SYNC] Starting complete sync for ${gameType}...`);
+    
+    // Validate game type
+    const validGames = ['539', 'mark6', 'lotto649'];
+    if (!validGames.includes(gameType)) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Invalid game type',
+        validTypes: validGames
+      });
+    }
+    
+    // Fetch all results sorted by newest first
+    const allResults = await db.LotteryResult
+      .find({ gameType })
+      .sort({ drawDate: -1 })
+      .lean();
+    
+    // Format results
+    const formattedResults = allResults.map((result, index) => ({
+      id: index,
+      _id: result._id,
+      drawDate: new Date(result.drawDate).toISOString().split('T')[0],
+      numbers: result.numbers,
+      bonus: result.bonus || null
+    }));
+    
+    console.log(`[FORCE-SYNC] Complete. Returning ${formattedResults.length} results sorted by newest first`);
+    
+    // Log the action
+    const userId = req.session.userId || req.session.user?.id;
+    if (userId) {
+      await dbService.logAdminAction(
+        userId,
+        'FORCE_SYNC_HISTORICAL_RESULTS',
+        { gameType, resultCount: formattedResults.length },
+        req
+      );
+    }
+    
+    res.json({
+      success: true,
+      message: `Force sync completed for ${gameType}. Results sorted newest first.`,
+      data: formattedResults,
+      total: formattedResults.length,
+      pagination: {
+        total: formattedResults.length,
+        page: 1,
+        limit: formattedResults.length,
+        pages: 1
+      }
+    });
+    
+  } catch (error) {
+    console.error('[FORCE-SYNC] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Force sync failed',
+      message: error.message,
+      data: [],
+      total: 0
     });
   }
 });

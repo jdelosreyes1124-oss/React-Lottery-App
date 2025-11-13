@@ -2567,30 +2567,47 @@ const handleAddResult = async () => {
     }
   };
 
-  const handleSync = async () => {
-    const confirmed = await showConfirm('Sync backend Excel data? This will reload all data from the Excel file.');
-    if (!confirmed) return;
+ const handleSync = async () => {
+  const confirmed = await showConfirm('Sync backend Excel data? This will reload all data from the Excel file.');
+  if (!confirmed) return;
 
-    setIsLoading(true);
-    try {
-      const response = await api.syncBackendExcel(selectedGameType);
+  setIsLoading(true);
+  try {
+    const response = await api.syncBackendExcel(selectedGameType);
+    
+    if (response.success && response.results) {
+      // ✅ Use the sorted results directly from sync response
+      setHistoricalResults(prev => ({
+        ...prev,
+        [selectedGameType]: {
+          results: response.results  // Already sorted by backend
+        }
+      }));
       
-      if (response.success) {
-        showNotification(
-          `Sync completed! ${response.imported} imported, ${response.skipped} skipped`,
-          'success'
-        );
-        
-        await loadHistoricalResults(selectedGameType, 1);
-      } else {
-        showNotification('Sync failed: ' + (response.error || 'Unknown error'), 'error');
+      // Update pagination
+      if (response.total !== undefined) {
+        setPagination({
+          page: 1,
+          limit: 50,
+          total: response.total,
+          totalPages: Math.ceil(response.total / 50),
+          hasMore: false
+        });
       }
-    } catch (error) {
-      showNotification('Sync failed: ' + error.message, 'error');
-    } finally {
-      setIsLoading(false);
+      
+      showNotification(
+        `Sync completed! ${response.data?.length || response.results?.length || 0} results loaded`,
+        'success'
+      );
+    } else {
+      showNotification('Sync failed: ' + (response.error || 'Unknown error'), 'error');
     }
-  };
+  } catch (error) {
+    showNotification('Sync failed: ' + error.message, 'error');
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   const numberCount = selectedGameType === '539' ? 5 : 6;
 
