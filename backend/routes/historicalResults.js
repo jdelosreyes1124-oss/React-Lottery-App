@@ -1,10 +1,15 @@
-console.log('🔥🔥🔥 HISTORICAL RESULTS ROUTE LOADED - ISO FORMAT VERSION 🔥🔥🔥');
-
 const express = require('express');
 const mongoose = require('mongoose');
 const { ObjectId } = require('mongoose').Types;
 const LotteryResult = require('../models_mongoose/LotteryResult');
+const fs = require('fs');
+const path = require('path');
+const XLSX = require('xlsx');
 
+// Define Excel file path
+const EXCEL_539_PATH = path.join(__dirname, '../data/539_results.xlsx');
+
+console.log('🔥🔥🔥 HISTORICAL RESULTS ROUTE LOADED - ISO FORMAT VERSION 🔥🔥🔥');
 console.log('[INFO] Historical Results routes loaded!');
 
 const router = express.Router();
@@ -15,7 +20,6 @@ function isMongoDBAvailable() {
   console.log(`[MongoDB Status] Connected: ${isConnected}, ReadyState: ${mongoose.connection?.readyState}`);
   return isConnected;
 }
-
 // Helper: Format date consistently
 function formatDateString(dateString) {
   if (!dateString) return new Date().toLocaleDateString('en-US');
