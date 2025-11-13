@@ -7,7 +7,21 @@ const compression = require('compression');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const mongoose = require('mongoose');
+app.use(cors({
+  origin: [
+    'https://react-lottery-app-qber.vercel.app',
+    'http://localhost:3000'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
+app.options('*', cors());
+
+// Then import and use your routes
+const adminRoutes = require('./routes/admin');
+app.use('/api/admin', adminRoutes);
 // Import MongoDB models
 const db = require('./models_mongoose');
 
