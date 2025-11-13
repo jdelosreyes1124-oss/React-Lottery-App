@@ -386,7 +386,7 @@ router.post('/historical-results/539/add', async (req, res) => {
     
     const sortedNumbers = parsedNumbers.sort((a, b) => a - b);
     
-    // Ensure proper date parsing
+    // ✅ FIX: Parse date without mutating it for the range query
     const parsedDate = new Date(drawDate);
     if (isNaN(parsedDate.getTime())) {
       return res.status(400).json({
@@ -395,12 +395,19 @@ router.post('/historical-results/539/add', async (req, res) => {
       });
     }
     
-    // Check for existing record
+    // ✅ FIX: Create separate date objects for range queries - DO NOT MUTATE parsedDate
+    const startOfDay = new Date(parsedDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date(parsedDate);
+    endOfDay.setHours(23, 59, 59, 999);
+    
+    // Check for existing record using the separate date objects
     const existingResult = await LotteryResult.findOne({
       gameType: '539',
       drawDate: {
-        $gte: new Date(parsedDate.setHours(0, 0, 0, 0)),
-        $lte: new Date(parsedDate.setHours(23, 59, 59, 999))
+        $gte: startOfDay,
+        $lte: endOfDay
       }
     });
 
@@ -422,7 +429,7 @@ router.post('/historical-results/539/add', async (req, res) => {
     console.log('[ADD] Last numeric ID:', lastResult?._id);
     console.log('[ADD] Generating next ID:', nextId);
 
-    // Create new result with generated ID
+    // ✅ FIX: Now save with the original parsedDate (still at 12:00:00)
     const newResult = new LotteryResult({
       _id: nextId,
       gameType: '539',
