@@ -8,7 +8,21 @@ const rateLimit = require('express-rate-limit');
 const dbService = require('../services/databaseService');
 const db = require('../models_mongoose');
 const scheduledScraper = require('../services/scheduledScraper');
+// Before your routes
+const cors = require('cors');
 
+app.use(cors({
+  origin: [
+    'https://react-lottery-app-qber.vercel.app',
+    'http://localhost:3000' // for local development
+  ],
+  credentials: true, // Important for cookies/sessions
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Handle preflight requests
+app.options('*', cors());
 // ============================================
 // RATE LIMITING
 // ============================================
