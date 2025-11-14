@@ -145,7 +145,7 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   proxy: true, // Trust the reverse proxy
-  name: 'connect.sid', // Session cookie name
+  name: process.env.SESSION_COOKIE_NAME || 'connect.sid', // ✅ Explicit cookie name
   cookie: {
     secure: true, // Always use secure cookies
     httpOnly: true, // Prevent XSS attacks
