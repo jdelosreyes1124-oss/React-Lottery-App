@@ -18,18 +18,25 @@ const GAME_CODE_MAP = {
 // Helper Function: Call Magayo API
 async function getMagayoPrediction(gameType, period, extended = false) {
   try {
-    console.log('Attempting to get prediction from Magayo API...');
+    console.log('\n🔄 [MAGAYO] Attempting to get prediction from Magayo API...');
+    console.log(`📊 [MAGAYO] Game Type: ${gameType}, Period: ${period}, Extended: ${extended}`);
     
     const magayoGameCode = GAME_CODE_MAP[gameType];
     if (!magayoGameCode) {
       throw new Error(`No Magayo game code mapping for ${gameType}`);
     }
 
+    console.log(`🎮 [MAGAYO] Using game code: ${magayoGameCode}`);
+
     const apiUrl = `${MAGAYO_API_URL}?api_key=${MAGAYO_API_KEY}&game=${magayoGameCode}&tickets=1`;
     
+    const startTime = Date.now();
     const response = await axios.get(apiUrl, {
       timeout: MAGAYO_TIMEOUT
     });
+    const responseTime = Date.now() - startTime;
+    
+    console.log(`⏱️  [MAGAYO] Response received in ${responseTime}ms`);
 
     if (response.data.error && response.data.error > 0) {
       throw new Error(`Magayo API error code: ${response.data.error}`);
@@ -37,6 +44,8 @@ async function getMagayoPrediction(gameType, period, extended = false) {
 
     if (response.data && response.data.tickets && response.data.tickets.length > 0) {
       const ticketString = response.data.tickets[0].ticket;
+      console.log(`🎫 [MAGAYO] Ticket received: ${ticketString}`);
+      
       const parts = ticketString.split(',');
       const numbers = [];
       let bonus = null;
@@ -49,7 +58,11 @@ async function getMagayoPrediction(gameType, period, extended = false) {
         }
       });
 
-      console.log('Successfully received prediction from Magayo API');
+      console.log(`✅ [MAGAYO] Successfully parsed prediction`);
+      console.log(`🔢 [MAGAYO] Numbers: [${numbers.sort((a, b) => a - b).join(', ')}]`);
+      if (bonus !== null) {
+        console.log(`🎁 [MAGAYO] Bonus: ${bonus}`);
+      }
       
       const prediction = {
         numbers: numbers.sort((a, b) => a - b),
@@ -61,13 +74,16 @@ async function getMagayoPrediction(gameType, period, extended = false) {
         metadata: {
           dataSource: 'Magayo API',
           predictionType: extended ? 'Extended Prediction' : 'Standard Prediction',
-          source: 'magayo-api'
+          source: 'magayo-api',
+          responseTime: `${responseTime}ms`
         }
       };
 
       if (bonus !== null) {
         prediction.bonus = bonus;
       }
+
+      console.log(`✅ [MAGAYO] SUCCESS - Prediction ready for use\n`);
 
       return {
         success: true,
@@ -78,7 +94,8 @@ async function getMagayoPrediction(gameType, period, extended = false) {
 
     throw new Error('Invalid response format from Magayo API');
   } catch (error) {
-    console.log('Magayo API failed:', error.message);
+    console.log(`❌ [MAGAYO] FAILED - ${error.message}`);
+    console.log(`⚠️  [MAGAYO] Will fallback to local algorithm\n`);
     return {
       success: false,
       error: error.message,
@@ -87,9 +104,10 @@ async function getMagayoPrediction(gameType, period, extended = false) {
   }
 }
 
-// Helper Function: Local Algorithm Prediction (FIXED)
+// Helper Function: Local Algorithm Prediction
 async function getLocalPrediction(gameType, period, extended = false, frequency) {
-  console.log('Using local algorithm for prediction...');
+  console.log('\n🔄 [LOCAL] Using local algorithm for prediction...');
+  console.log(`📊 [LOCAL] Game Type: ${gameType}, Period: ${period}, Extended: ${extended}`);
   
   const gameConfig = {
     '539': { numbers: extended ? 8 : 5, max: 39, hasBonus: false },
@@ -112,6 +130,8 @@ async function getLocalPrediction(gameType, period, extended = false, frequency)
   // Sort by weight for weighted selection
   allNumbers.sort((a, b) => b.weight - a.weight);
   
+  console.log(`📈 [LOCAL] Loaded frequency data from ${frequency.totalDraws} draws`);
+  
   // Select numbers with weighted probability
   while (numbers.length < config.numbers) {
     // Use power function for weighted selection (higher weight = higher chance)
@@ -124,6 +144,8 @@ async function getLocalPrediction(gameType, period, extended = false, frequency)
   }
   
   numbers.sort((a, b) => a - b);
+
+  console.log(`🔢 [LOCAL] Generated numbers: [${numbers.join(', ')}]`);
 
   const prediction = {
     numbers,
@@ -153,6 +175,12 @@ async function getLocalPrediction(gameType, period, extended = false, frequency)
     }
   }
 
+  if (prediction.bonus) {
+    console.log(`🎁 [LOCAL] Bonus: ${prediction.bonus}`);
+  }
+
+  console.log(`✅ [LOCAL] SUCCESS - Prediction ready\n`);
+
   return {
     success: true,
     prediction,
@@ -166,23 +194,32 @@ router.get('/status', async (req, res) => {
   let magayoMessage = '';
   let responseTime = null;
   
+  console.log('\n📡 [STATUS] Checking Magayo API status...');
+  
   try {
     const startTime = Date.now();
     const testUrl = `${MAGAYO_API_URL}?api_key=${MAGAYO_API_KEY}&game=us_powerball&tickets=1`;
     const response = await axios.get(testUrl, { timeout: 3000 });
     responseTime = Date.now() - startTime;
     
+    console.log(`⏱️  [STATUS] Response time: ${responseTime}ms`);
+    
     if (response.data && response.data.error === 0) {
       magayoStatus = 'connected';
       magayoMessage = 'API is responding normally';
+      console.log(`✅ [STATUS] Magayo API is CONNECTED`);
     } else {
       magayoStatus = 'error';
       magayoMessage = `API error code: ${response.data?.error || 'unknown'}`;
+      console.log(`⚠️  [STATUS] Magayo API returned error: ${magayoMessage}`);
     }
   } catch (error) {
     magayoStatus = 'unavailable';
     magayoMessage = error.message;
+    console.log(`❌ [STATUS] Magayo API is UNAVAILABLE: ${error.message}`);
   }
+
+  console.log('');
 
   res.json({
     success: true,
@@ -561,11 +598,18 @@ router.post('/:gameType', async (req, res) => {
     const { gameType } = req.params;
     const { period = '1month', extended = false } = req.body;
     
-    console.log('Prediction request for gameType:', gameType);
-    console.log('Period:', period, 'Extended:', extended);
+    console.log('\n');
+    console.log('═'.repeat(60));
+    console.log('🎯 PREDICTION REQUEST START');
+    console.log('═'.repeat(60));
+    console.log(`⏰ Timestamp: ${new Date().toISOString()}`);
+    console.log(`🎮 Game Type: ${gameType}`);
+    console.log(`📅 Period: ${period}`);
+    console.log(`📊 Extended: ${extended}`);
+    console.log('');
 
     if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
-      console.log('Invalid game type received:', gameType);
+      console.log(`❌ Invalid game type received: ${gameType}`);
       return res.status(400).json({
         success: false,
         error: `Invalid game type: ${gameType}. Must be 539, mark6, or lotto649`
@@ -580,19 +624,23 @@ router.post('/:gameType', async (req, res) => {
     };
     
     const days = daysMap[period] || 30;
+    console.log(`📈 Loading frequency data for last ${days} days...`);
     const frequency = await dbService.getNumberFrequency(gameType, days);
+    console.log(`✅ Frequency data loaded: ${frequency.totalDraws} draws`);
+    console.log('');
     
     let predictionResult;
     let predictionSource;
 
+    // Try Magayo API first
     const magayoResult = await getMagayoPrediction(gameType, period, extended);
     
     if (magayoResult.success) {
       predictionResult = magayoResult.prediction;
       predictionSource = 'magayo-api';
-      console.log('Using Magayo API prediction');
+      console.log(`✅ PREDICTION SOURCE: MAGAYO API`);
     } else {
-      console.log('Magayo API failed, falling back to local algorithm');
+      console.log(`⚠️  PREDICTION SOURCE: LOCAL ALGORITHM (Magayo fallback)`);
       const localResult = await getLocalPrediction(gameType, period, extended, frequency);
       predictionResult = localResult.prediction;
       predictionSource = 'local-algorithm';
@@ -604,7 +652,9 @@ router.post('/:gameType', async (req, res) => {
     predictionResult.metadata.predictionSource = predictionSource;
     predictionResult.metadata.fallbackUsed = predictionSource === 'local-algorithm';
 
+    // Save to database if user is logged in
     if (req.session?.user) {
+      console.log(`💾 Saving prediction to database for user: ${req.session.user.id}`);
       await dbService.savePrediction({
         user_id: req.session.user.id,
         game_type: gameType,
@@ -616,16 +666,31 @@ router.post('/:gameType', async (req, res) => {
         prediction_type: extended ? 'extended' : 'standard',
         metadata: predictionResult.metadata
       });
+      console.log(`✅ Prediction saved successfully`);
     }
 
-    console.log('Generated prediction:', predictionResult.numbers, 'from', predictionSource);
+    console.log('');
+    console.log(`📊 FINAL PREDICTION`);
+    console.log(`   Numbers: [${predictionResult.numbers.join(', ')}]`);
+    if (predictionResult.bonus) {
+      console.log(`   Bonus: ${predictionResult.bonus}`);
+    }
+    console.log(`   Confidence: ${(predictionResult.confidence * 100).toFixed(1)}%`);
+    console.log(`   Source: ${predictionSource}`);
+    console.log('');
+    console.log('═'.repeat(60));
+    console.log('🎯 PREDICTION REQUEST END');
+    console.log('═'.repeat(60));
+    console.log('');
 
     res.json({
       success: true,
       prediction: predictionResult
     });
   } catch (error) {
-    console.error('Error generating prediction:', error);
+    console.error('❌ Error generating prediction:', error);
+    console.log('═'.repeat(60));
+    console.log('');
     res.status(500).json({
       success: false,
       error: error.message
@@ -633,16 +698,21 @@ router.post('/:gameType', async (req, res) => {
   }
 });
 
-// POST /api/predictions/:gameType/automation (FIXED)
+// POST /api/predictions/:gameType/automation
 router.post('/:gameType/automation', async (req, res) => {
   try {
     const { gameType } = req.params;
     const { period = '1month', iterations = 1000 } = req.body;
     
-    console.log('=== AUTOMATION START ===');
-    console.log('Game Type:', gameType);
-    console.log('Iterations:', iterations);
-    console.log('Period:', period);
+    console.log('\n');
+    console.log('═'.repeat(60));
+    console.log('🤖 AUTOMATION REQUEST START');
+    console.log('═'.repeat(60));
+    console.log(`⏰ Timestamp: ${new Date().toISOString()}`);
+    console.log(`🎮 Game Type: ${gameType}`);
+    console.log(`🔄 Iterations: ${iterations}`);
+    console.log(`📅 Period: ${period}`);
+    console.log('');
     
     if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
       return res.status(400).json({
@@ -669,9 +739,11 @@ router.post('/:gameType/automation', async (req, res) => {
     };
     
     const days = daysMap[period] || 30;
+    console.log(`📈 Loading frequency data...`);
     const frequency = await dbService.getNumberFrequency(gameType, days);
     
-    console.log('Frequency data loaded:', frequency.totalDraws, 'draws analyzed');
+    console.log(`✅ Frequency data loaded: ${frequency.totalDraws} draws analyzed`);
+    console.log('');
     
     // Generate unique combinations
     const combinations = new Set();
@@ -690,10 +762,9 @@ router.post('/:gameType/automation', async (req, res) => {
       for (let num = 1; num <= config.maxNumber; num++) {
         // Find frequency data for this number
         const freqData = frequency.mainNumbers.find(f => f.number === num);
-        const weight = freqData ? Math.max(freqData.count, 1) : 1; // Use count if available, else 1
+        const weight = freqData ? Math.max(freqData.count, 1) : 1;
         
-        // Add the number to pool based on weight (more weight = more copies in pool)
-        // This ensures all numbers 1-39 are represented
+        // Add the number to pool based on weight
         for (let w = 0; w < weight; w++) {
           pool.push(num);
         }
@@ -704,7 +775,9 @@ router.post('/:gameType/automation', async (req, res) => {
     
     // Generate combinations using weighted random selection
     let attempts = 0;
-    const maxAttempts = iterations * 10; // Prevent infinite loop
+    const maxAttempts = iterations * 10;
+    
+    console.log(`🔄 Generating ${iterations} unique combinations...`);
     
     while (combinations.size < iterations && attempts < maxAttempts) {
       attempts++;
@@ -715,7 +788,6 @@ router.post('/:gameType/automation', async (req, res) => {
       
       // Select numbers from the weighted pool
       while (numbers.length < config.numbersPerDraw) {
-        // Use power function for biased selection towards frequent numbers
         const poolIndex = Math.floor(Math.pow(Math.random(), 1.5) * weightedPool.length);
         
         if (!usedIndices.has(poolIndex)) {
@@ -729,7 +801,6 @@ router.post('/:gameType/automation', async (req, res) => {
         
         // Fallback if we're stuck
         if (usedIndices.size > weightedPool.length * 0.8) {
-          // Just add a random number from the full range
           const randomNum = Math.floor(Math.random() * config.maxNumber) + 1;
           if (!numbers.includes(randomNum)) {
             numbers.push(randomNum);
@@ -752,8 +823,9 @@ router.post('/:gameType/automation', async (req, res) => {
       }
     }
     
-    console.log('Generated combinations:', combinations.size);
-    console.log('Total attempts:', attempts);
+    console.log(`✅ Generated ${combinations.size} unique combinations`);
+    console.log(`📊 Total attempts: ${attempts}`);
+    console.log('');
     
     // Convert frequency tracker to sorted array
     const frequencyData = Object.entries(frequencyTracker)
@@ -768,14 +840,14 @@ router.post('/:gameType/automation', async (req, res) => {
     // Get top numbers
     const topNumbers = frequencyData.slice(0, 10).map(item => item.number);
     
-    console.log('Top 10 numbers:', topNumbers.join(', '));
-    console.log('Number range in results:', 
-      Math.min(...frequencyData.map(d => d.number)), 
-      'to', 
-      Math.max(...frequencyData.map(d => d.number))
-    );
-    console.log('Total unique numbers used:', frequencyData.length);
-    console.log('=== AUTOMATION END ===\n');
+    console.log(`🔢 Top 10 numbers: [${topNumbers.join(', ')}]`);
+    console.log(`📊 Total unique numbers used: ${frequencyData.length}`);
+    console.log(`📈 Number range: ${Math.min(...frequencyData.map(d => d.number))} to ${Math.max(...frequencyData.map(d => d.number))}`);
+    console.log('');
+    console.log('═'.repeat(60));
+    console.log('🤖 AUTOMATION REQUEST END');
+    console.log('═'.repeat(60));
+    console.log('');
     
     res.json({
       success: true,
