@@ -6,7 +6,7 @@ const axios = require('axios');
 
 // Magayo API Configuration
 const MAGAYO_API_URL = process.env.MAGAYO_API_URL || 'https://www.magayo.com/api/tickets.php';
-const MAGAYO_API_KEY = process.env.MAGAYO_API_KEY || 'your-api-key-here';
+const MAGAYO_API_KEY = process.env.MAGAYO_API_KEY || 'xgvyUbyjQVSBtrHpXA';
 const MAGAYO_TIMEOUT = 5000;
 
 const GAME_CODE_MAP = {
