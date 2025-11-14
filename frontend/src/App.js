@@ -1620,7 +1620,7 @@ const AuthProvider = ({ children }) => {
   useEffect(() => {
     checkAuth();
   }, []);
-
+  
   const checkAuth = async () => {
     try {
       const response = await api.verifyAuth();
@@ -1633,8 +1633,7 @@ const AuthProvider = ({ children }) => {
       setIsLoading(false);
     }
   };
-// Add this to the AuthProvider value prop (around line 900):
-const register = async (credentials) => {
+  const register = async (credentials) => {
   try {
     const response = await api.register(credentials);
     if (response.success && response.user) {
@@ -1646,24 +1645,6 @@ const register = async (credentials) => {
     return { success: false, error: error.message };
   }
 };
-
-// Then add 'register' to the return object:
-return (
-  <AuthContext.Provider value={{
-    user,
-    isAuthenticated: !!user,
-    isAdmin: user?.role === USER_ROLES.ADMIN,
-    isGoogleUser: user?.authMethod === 'google',
-    login,
-    register,           // Add this line
-    googleLogin,
-    logout,
-    checkAuth,
-    isLoading
-  }}>
-    {children}
-  </AuthContext.Provider>
-);
   const login = async (credentials) => {
     try {
       const response = await api.login(credentials);
@@ -1702,6 +1683,7 @@ return (
       isAdmin: user?.role === USER_ROLES.ADMIN,
       isGoogleUser: user?.authMethod === 'google',
       login,
+      register,
       googleLogin,
       logout,
       checkAuth,
