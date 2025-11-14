@@ -87,7 +87,21 @@ const api = {
     fetch(`${API_BASE_URL}/auth/verify`, {
       credentials: 'include'
     }).then(res => res.json()).catch(() => ({ authenticated: false })),
-  
+   logout: () =>
+    fetch(`${API_BASE_URL}/auth/logout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include' // ✅ CRITICAL: Include credentials for cookies
+    })
+    .then(res => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    })
+    .catch(err => {
+      console.error('❌ Logout API error:', err);
+      throw err;
+    }),
+
   predict: (gameType, period = '1month') => 
     fetch(`${API_BASE_URL}/predictions/${gameType}`, { 
       method: 'POST',
@@ -1672,8 +1686,19 @@ const AuthProvider = ({ children }) => {
   };
 
   const logout = async () => {
-    await api.logout();
+  try {
+    const response = await api.logout();
+    if (response.success) {
+      setUser(null);
+      console.log('✅ User logged out successfully');
+    } else {
+      console.error('❌ Logout failed:', response.message);
+    }
+  } catch (error) {
+    console.error('❌ Logout error:', error);
+    // Force logout on client side even if API fails
     setUser(null);
+  }
   };
 
   return (
