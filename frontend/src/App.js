@@ -37,6 +37,7 @@ const MULTIPLIER_OPTIONS = [
 ];
 
 // API service 
+// API service 
 const api = {
   login: ({ username, password }) =>
     fetch(`${API_BASE_URL}/auth/login`, {
@@ -44,6 +45,17 @@ const api = {
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ username, password }),
   credentials: 'include'
+    }).then(res => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }),
+  
+  register: ({ username, password, email }) =>
+    fetch(`${API_BASE_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, email }),
+      credentials: 'include'
     }).then(res => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
@@ -60,11 +72,16 @@ const api = {
       return res.json();
     }),
   
-  logout: () =>
-    fetch(`${API_BASE_URL}/auth/logout`, {
+  googleRegister: (tokenId) =>
+    fetch(`${API_BASE_URL}/auth/google/register`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: tokenId }),
       credentials: 'include'
-    }).then(res => res.json()).catch(err => ({ success: false })),
+    }).then(res => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }),
   
   verifyAuth: () =>
     fetch(`${API_BASE_URL}/auth/verify`, {
@@ -1616,7 +1633,37 @@ const AuthProvider = ({ children }) => {
       setIsLoading(false);
     }
   };
+// Add this to the AuthProvider value prop (around line 900):
+const register = async (credentials) => {
+  try {
+    const response = await api.register(credentials);
+    if (response.success && response.user) {
+      setUser(response.user);
+      return { success: true };
+    }
+    return { success: false, error: response.error || 'Registration failed' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+};
 
+// Then add 'register' to the return object:
+return (
+  <AuthContext.Provider value={{
+    user,
+    isAuthenticated: !!user,
+    isAdmin: user?.role === USER_ROLES.ADMIN,
+    isGoogleUser: user?.authMethod === 'google',
+    login,
+    register,           // Add this line
+    googleLogin,
+    logout,
+    checkAuth,
+    isLoading
+  }}>
+    {children}
+  </AuthContext.Provider>
+);
   const login = async (credentials) => {
     try {
       const response = await api.login(credentials);
@@ -2993,13 +3040,14 @@ const GoogleSignInButton = ({ onSuccess, onError, disabled }) => {
   );
 };
 
-// Full-Screen Login Component
+// Full-Screen Login Component - UPDATED
 const GoogleLoginScreen = () => {
   const { login, googleLogin } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showSignUp, setShowSignUp] = useState(false);
 
   const handleTraditionalLogin = async (e) => {
     e.preventDefault();
@@ -3025,7 +3073,12 @@ const GoogleLoginScreen = () => {
     try {
       const result = await googleLogin(token);
       if (!result.success) {
-        setError(result.error || 'Google login failed');
+        // Check if account needs to be registered
+        if (result.error && result.error.includes('not registered')) {
+          setError('Google account not registered. Please sign up first.');
+        } else {
+          setError(result.error || 'Google login failed');
+        }
       }
     } catch (err) {
       setError(err.message || 'Google login failed');
@@ -3038,6 +3091,15 @@ const GoogleLoginScreen = () => {
     setError(errorMessage);
     setIsLoading(false);
   };
+
+  if (showSignUp) {
+    return (
+      <SignUpForm 
+        onClose={() => setShowSignUp(false)}
+        onSwitchToLogin={() => setShowSignUp(false)}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
@@ -3135,8 +3197,18 @@ const GoogleLoginScreen = () => {
             </button>
           </form>
 
-          <div className="mt-6 text-center text-sm text-gray-600">
-            <p>Demo: admin / admin123</p>
+          {/* Sign Up Link */}
+          <div className="mt-6 text-center">
+            <p className="text-sm text-gray-600 mb-2">
+              Don't have an account?{' '}
+              <button
+                onClick={() => setShowSignUp(true)}
+                className="text-blue-600 hover:text-blue-800 font-medium hover:underline transition-colors"
+              >
+                Sign Up
+              </button>
+            </p>
+            <p className="text-xs text-gray-500 border-t pt-4">Demo: admin / admin123</p>
           </div>
         </div>
 

@@ -44,7 +44,6 @@ mongoose.connect(mongoUri)
 // ============================================
 // MIDDLEWARE
 // ============================================
-
 // ENHANCED CORS configuration for cross-domain requests
 const corsOptions = {
   origin: function(origin, callback) {
@@ -52,7 +51,6 @@ const corsOptions = {
     if (process.env.NODE_ENV === 'development') {
       return callback(null, true);
     }
-
     // Production origins
     const allowedOrigins = [
       'https://react-lottery-app-qber.vercel.app',
@@ -63,7 +61,6 @@ const corsOptions = {
       // Allow requests with no origin (like mobile apps or curl)
       return callback(null, true);
     }
-
     if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
       callback(null, origin);  // Return the origin instead of true
     } else {
@@ -80,7 +77,6 @@ const corsOptions = {
 };
 
 // COOP headers removed to allow Google OAuth popup communication
-// These headers were blocking window.postMessage from Google OAuth
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions)); // Handle preflight requests
 
@@ -176,18 +172,15 @@ if (process.env.NODE_ENV === 'development') {
 // ============================================
 // ROUTES - CRITICAL ORDER FIX
 // ============================================
-
 // API routes - ORDER MATTERS!
 app.use('/api/auth', authRoutes);
 app.use('/api/predictions', predictionRoutes);
 
 // CRITICAL: Load historicalResults BEFORE admin routes
-// This handles /api/admin/historical-results/539/* routes
 app.use('/api/admin', historicalResultsRoutes);
 console.log('✅ Historical Results routes loaded - handles /api/admin/historical-results/539/*');
 
 // Admin routes MUST come AFTER historicalResults
-// Make sure the conflicting POST route is commented out in admin.js
 app.use('/api/admin', adminRoutes);
 console.log('✅ Admin routes loaded - conflicting POST route should be commented out');
 
@@ -195,6 +188,270 @@ console.log('✅ Admin routes loaded - conflicting POST route should be commente
 app.use('/api/admin', schedulerRoutes);
 console.log('✅ Scheduler routes loaded - handles /api/admin/scheduler/*');
 
+// ============================================
+// MAGAYO API TESTING
+// ============================================
+
+app.get('/api/admin/magayo/test', async (req, res) => {
+  console.log('\n🧪 MAGAYO API TEST START');
+  console.log('═'.repeat(60));
+  
+  const testResults = {
+    timestamp: new Date().toISOString(),
+    tests: {},
+    summary: {}
+  };
+
+  try {
+    const axios = require('axios');
+    const apiUrl = process.env.MAGAYO_API_URL || 'https://www.magayo.com/api/tickets.php';
+    const apiKey = process.env.MAGAYO_API_KEY;
+
+    const GAME_CODE_MAP = {
+      '539': 'tw_dailycash539',
+      'mark6': 'hk_mark6',
+      'lotto649': 'tw_lotto649'
+    };
+
+    // Test 1: Environment Variables
+    console.log('\n📋 TEST 1: Environment Variables');
+    testResults.tests.envVariables = {
+      apiUrl: apiUrl,
+      hasApiKey: !!apiKey,
+      apiKeyLength: apiKey ? apiKey.length : 0,
+      status: apiKey ? 'PASSED' : 'FAILED'
+    };
+    
+    if (apiKey) {
+      console.log('✅ API URL:', apiUrl);
+      console.log('✅ API Key found (length:', apiKey.length, ')');
+    } else {
+      console.log('❌ MAGAYO_API_KEY is not set');
+    }
+
+    // Test 2: API Connectivity
+    console.log('\n🌐 TEST 2: API Connectivity');
+    try {
+      const startTime = Date.now();
+      const testUrl = `${apiUrl}?api_key=${apiKey}&game=tw_dailycash539&tickets=1`;
+      console.log('Testing URL:', testUrl.replace(apiKey, 'YOUR_API_KEY'));
+      
+      const response = await axios.get(testUrl, { timeout: 5000 });
+      const responseTime = Date.now() - startTime;
+      
+      console.log('✅ Connected successfully');
+      console.log('⏱️  Response time:', responseTime, 'ms');
+      console.log('📊 Response status:', response.status);
+      
+      testResults.tests.connectivity = {
+        status: 'PASSED',
+        responseTime: responseTime,
+        httpStatus: response.status
+      };
+    } catch (error) {
+      console.log('❌ Connection failed:', error.message);
+      testResults.tests.connectivity = {
+        status: 'FAILED',
+        error: error.message
+      };
+    }
+
+    // Test 3: Game Code Mapping
+    console.log('\n🎮 TEST 3: Game Code Mapping');
+    testResults.tests.gameCodeMapping = {
+      ...GAME_CODE_MAP,
+      status: 'PASSED'
+    };
+    console.log('✅ Game codes configured:');
+    Object.entries(GAME_CODE_MAP).forEach(([game, code]) => {
+      console.log(`   - ${game}: ${code}`);
+    });
+
+    // Test 4: Prediction Request
+    console.log('\n🎯 TEST 4: Magayo Prediction Request (539)');
+    try {
+      const gameType = '539';
+      const magayoGameCode = GAME_CODE_MAP[gameType];
+      
+      const predictionUrl = `${apiUrl}?api_key=${apiKey}&game=${magayoGameCode}&tickets=1`;
+      console.log('Requesting prediction for:', gameType);
+      
+      const startTime = Date.now();
+      const response = await axios.get(predictionUrl, { timeout: 5000 });
+      const responseTime = Date.now() - startTime;
+      
+      if (response.data.error && response.data.error > 0) {
+        throw new Error(`API error code: ${response.data.error}`);
+      }
+      
+      if (response.data && response.data.tickets && response.data.tickets.length > 0) {
+        const ticket = response.data.tickets[0].ticket;
+        console.log('✅ Prediction received successfully');
+        console.log('🎫 Ticket:', ticket);
+        console.log('⏱️  Response time:', responseTime, 'ms');
+        
+        // Parse the ticket
+        const parts = ticket.split(',');
+        const numbers = [];
+        let bonus = null;
+        
+        parts.forEach(part => {
+          if (part.startsWith('+')) {
+            bonus = parseInt(part.substring(1));
+          } else {
+            numbers.push(parseInt(part));
+          }
+        });
+        
+        console.log('🔢 Numbers:', numbers.sort((a, b) => a - b));
+        if (bonus) console.log('🎁 Bonus:', bonus);
+        
+        testResults.tests.predictionRequest = {
+          status: 'PASSED',
+          gameType: gameType,
+          numbers: numbers.sort((a, b) => a - b),
+          bonus: bonus,
+          responseTime: responseTime,
+          rawTicket: ticket
+        };
+      } else {
+        throw new Error('Invalid response format');
+      }
+    } catch (error) {
+      console.log('❌ Prediction request failed:', error.message);
+      testResults.tests.predictionRequest = {
+        status: 'FAILED',
+        error: error.message
+      };
+    }
+
+    // Test 5: All Game Types
+    console.log('\n🎮 TEST 5: Testing All Game Types');
+    const gameTests = {};
+    
+    for (const [gameType, magayoCode] of Object.entries(GAME_CODE_MAP)) {
+      try {
+        console.log(`\n   Testing ${gameType} (${magayoCode})...`);
+        
+        const testUrl = `${apiUrl}?api_key=${apiKey}&game=${magayoCode}&tickets=1`;
+        const startTime = Date.now();
+        const response = await axios.get(testUrl, { timeout: 5000 });
+        const responseTime = Date.now() - startTime;
+        
+        if (response.data.error === 0 || !response.data.error) {
+          console.log(`   ✅ ${gameType} working (${responseTime}ms)`);
+          gameTests[gameType] = {
+            status: 'PASSED',
+            responseTime: responseTime
+          };
+        } else {
+          console.log(`   ❌ ${gameType} returned error: ${response.data.error}`);
+          gameTests[gameType] = {
+            status: 'FAILED',
+            errorCode: response.data.error
+          };
+        }
+      } catch (error) {
+        console.log(`   ❌ ${gameType} error: ${error.message}`);
+        gameTests[gameType] = {
+          status: 'FAILED',
+          error: error.message
+        };
+      }
+    }
+    
+    testResults.tests.allGameTypes = gameTests;
+
+    // Summary
+    console.log('\n');
+    console.log('═'.repeat(60));
+    console.log('📊 TEST SUMMARY');
+    console.log('═'.repeat(60));
+    
+    const passedTests = Object.values(testResults.tests)
+      .filter(test => test.status === 'PASSED').length;
+    const totalTests = Object.keys(testResults.tests).length;
+    
+    console.log(`✅ Passed: ${passedTests}/${totalTests}`);
+    
+    Object.entries(testResults.tests).forEach(([testName, result]) => {
+      const icon = result.status === 'PASSED' ? '✅' : '❌';
+      console.log(`${icon} ${testName}: ${result.status}`);
+    });
+    
+    testResults.summary = {
+      totalTests: totalTests,
+      passedTests: passedTests,
+      failedTests: totalTests - passedTests,
+      allTestsPassed: passedTests === totalTests
+    };
+    
+    console.log('');
+    console.log('═'.repeat(60));
+    console.log('🧪 MAGAYO API TEST END');
+    console.log('═'.repeat(60));
+    console.log('');
+
+    res.json({
+      success: true,
+      ...testResults
+    });
+
+  } catch (error) {
+    console.error('💥 Test error:', error);
+    testResults.summary = {
+      status: 'FATAL_ERROR',
+      error: error.message
+    };
+    
+    res.status(500).json({
+      success: false,
+      ...testResults
+    });
+  }
+});
+
+app.get('/api/admin/magayo/quick-test', async (req, res) => {
+  try {
+    const axios = require('axios');
+    const apiUrl = process.env.MAGAYO_API_URL || 'https://www.magayo.com/api/tickets.php';
+    const apiKey = process.env.MAGAYO_API_KEY;
+    
+    if (!apiKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'MAGAYO_API_KEY not configured'
+      });
+    }
+    
+    const testUrl = `${apiUrl}?api_key=${apiKey}&game=tw_dailycash539&tickets=1`;
+    const response = await axios.get(testUrl, { timeout: 5000 });
+    
+    if (response.data.tickets && response.data.tickets.length > 0) {
+      res.json({
+        success: true,
+        status: 'API_WORKING',
+        ticket: response.data.tickets[0].ticket
+      });
+    } else {
+      res.json({
+        success: false,
+        status: 'NO_DATA',
+        response: response.data
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      status: 'API_ERROR',
+      error: error.message
+    });
+  }
+});
+
+// ============================================
+// DEBUG ROUTES
+// ============================================
 // Debug route to verify historicalResults routes are loaded
 app.get('/api/admin/test-historical', (req, res) => {
   res.json({
@@ -252,6 +509,7 @@ app.get('/api/health', async (req, res) => {
       routes: {
         historicalResultsLoaded: true,
         adminLoaded: true,
+        magayoTestingLoaded: true,
         order: 'historicalResults BEFORE admin (correct)'
       }
     });
@@ -290,12 +548,9 @@ app.get('/api', (req, res) => {
         schedulerStatus: 'GET /api/admin/scheduler/status/:gameType',
         triggerScrape: 'POST /api/admin/scheduler/trigger/:gameType'
       },
-      historicalRoutes: {
-        get539: 'GET /api/admin/historical-results/539',
-        add539: 'POST /api/admin/historical-results/539/add',
-        delete539: 'DELETE /api/admin/historical-results/539/:id',
-        sync539: 'POST /api/admin/historical-results/539/sync',
-        status539: 'GET /api/admin/historical-results/539/status'
+      magayoTesting: {
+        fullTest: 'GET /api/admin/magayo/test',
+        quickTest: 'GET /api/admin/magayo/quick-test'
       },
       health: 'GET /api/health'
     }
@@ -337,14 +592,12 @@ app.get('/api/test-cors', (req, res) => {
 // ============================================
 // ERROR HANDLING
 // ============================================
-
 // 404 handler
 app.use('*', (req, res) => {
   // Special logging for historical-results 404s
   if (req.originalUrl.includes('historical-results')) {
     console.error('❌ 404 for historical-results route:', req.method, req.originalUrl);
     console.error('   This means the route is not properly registered');
-    console.error('   Check that historicalResults.js exports router correctly');
   } else if (process.env.NODE_ENV === 'development') {
     console.log(`❌ 404 Not Found: ${req.method} ${req.originalUrl}`);
   }
@@ -353,10 +606,7 @@ app.use('*', (req, res) => {
     error: 'Endpoint not found',
     path: req.originalUrl,
     method: req.method,
-    message: 'The requested API endpoint does not exist',
-    debug: req.originalUrl.includes('historical-results') 
-      ? 'Historical results route not found - check route registration' 
-      : undefined
+    message: 'The requested API endpoint does not exist'
   });
 });
 
@@ -393,15 +643,6 @@ app.use((err, req, res, next) => {
     });
   }
   
-  // Handle Mongoose _id error specifically
-  if (err.message && err.message.includes('document must have an _id')) {
-    return res.status(500).json({
-      error: 'Database error',
-      message: 'Document ID error - this route may have a conflict',
-      debug: 'Check if admin.js POST route is commented out'
-    });
-  }
-  
   res.status(err.status || 500).json({
     error: 'Something went wrong!',
     message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
@@ -433,7 +674,12 @@ async function startServer() {
       console.log('   2. Predictions routes');
       console.log('   3. Historical Results routes (FIRST for /admin)');
       console.log('   4. Admin routes (SECOND for /admin)');
+      console.log('   5. Scheduler routes');
       console.log('   ✅ This ensures 539 routes work correctly');
+      console.log('=====================================');
+      console.log('🧪 MAGAYO TESTING ENDPOINTS:');
+      console.log('   - Full test: GET /api/admin/magayo/test');
+      console.log('   - Quick test: GET /api/admin/magayo/quick-test');
       console.log('=====================================');
     });
   } catch (error) {

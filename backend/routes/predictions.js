@@ -10,9 +10,9 @@ const MAGAYO_API_KEY = process.env.MAGAYO_API_KEY || 'xgvyUbyjQVSBtrHpXA';
 const MAGAYO_TIMEOUT = 5000;
 
 const GAME_CODE_MAP = {
-  '539': 'tw_dailycash539',
+  '539': 'tw_daily',
   'mark6': 'hk_mark6',
-  'lotto649': 'tw_lotto649'
+  'lotto649': 'tw_lotto'
 };
 
 // Helper Function: Call Magayo API
