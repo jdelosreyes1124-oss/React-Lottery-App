@@ -2497,7 +2497,7 @@ const AdminPanel = ({ onClose }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showScraper, setShowScraper] = useState(false);
-  const [activeTab, setActiveTab] = useState('historical'); // 'historical' or 'users'
+  const [activeTab, setActiveTab] = useState('historical'); // or 'users'
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 50,
