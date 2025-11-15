@@ -107,27 +107,7 @@ app.set('trust proxy', 1);
 // CORS and security middleware
 app.use((req, res, next) => {
   const origin = req.get('origin');
-  
-  // Log all requests in production for debugging CORS
-  console.log(`📥 ${req.method} ${req.path} from ${origin || 'no-origin'}`);
-  
-  // Ensure CORS headers are present
-  res.header('Access-Control-Allow-Credentials', 'true');
-  
-  // Only set origin if it's allowed
-  if (origin && (origin === 'https://react-lottery-app-qber.vercel.app' || 
-                 origin.endsWith('.vercel.app') || 
-                 process.env.NODE_ENV === 'development')) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
-  
-  // Handle preflight
-  if (req.method === 'OPTIONS') {
-    res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,PATCH');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cookie, Set-Cookie');
-    return res.status(200).json({ status: 'ok' });
-  }
-  
+  console.log(`🔥 ${req.method} ${req.path} from ${origin || 'no-origin'}`);
   next();
 });
 
@@ -152,7 +132,7 @@ app.use(session({
     sameSite: 'none', // Required for cross-origin
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     path: '/',
-    domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
+    domain: undefined
   }
 }));
 
