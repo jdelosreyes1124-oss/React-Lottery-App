@@ -2625,7 +2625,7 @@ const AdminPanel = ({ onClose }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showScraper, setShowScraper] = useState(false);
-  const [activeTab, setActiveTab] = useState('historical'); // or 'users'
+  const [activeTab, setActiveTab] = useState('historical'); // 'historical' or 'users'
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 50,
@@ -2695,8 +2695,10 @@ const AdminPanel = ({ onClose }) => {
   };
 
   useEffect(() => {
-    loadHistoricalResults(selectedGameType, 1);
-  }, [selectedGameType]);
+    if (activeTab === 'historical') {
+      loadHistoricalResults(selectedGameType, 1);
+    }
+  }, [selectedGameType, activeTab]);
 
   const handleNumberChange = (field, value) => {
     setNewResult(prev => ({ ...prev, [field]: value }));
@@ -2717,13 +2719,10 @@ const AdminPanel = ({ onClose }) => {
       if (response.status === 401) throw new Error('Not authenticated');
       if (response.status === 403) throw new Error('Admin access required');
       
-      // Handle HTML or non-JSON responses
       const contentType = response.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) {
-        // If we get HTML, it might be a login page or error page
         const text = await response.text();
         console.error('Got non-JSON response:', text.substring(0, 200));
-        // Use mock data as fallback
         const mockResults = [];
         const maxNumber = gameType === '539' ? 39 : 49;
         const numberCount = gameType === '539' ? 5 : 6;
@@ -2756,10 +2755,8 @@ const AdminPanel = ({ onClose }) => {
       const data = await response.json();
       console.log('Admin Panel API Response:', data);
       
-      // Handle different response structures
       let resultsData = [];
       
-      // Check if data is an array directly
       if (Array.isArray(data)) {
         resultsData = data;
       } else if (data.results) {
@@ -2767,72 +2764,62 @@ const AdminPanel = ({ onClose }) => {
       } else if (data.data) {
         resultsData = data.data;
       } else if (data.docs) {
-        // Some APIs return docs property
         resultsData = data.docs;
       }
       
-   console.log('Extracted results data:', resultsData.length, 'items');
+      console.log('Extracted results data:', resultsData.length, 'items');
 
-// Helper function to safely parse dates
-const parseDate = (dateStr) => {
-  if (!dateStr) return new Date(0); // Return epoch if no date
-  const date = new Date(dateStr);
-  // Check if date is valid
-  if (isNaN(date.getTime())) {
-    console.warn('Invalid date:', dateStr);
-    return new Date(0);
-  }
-  return date;
-};
+      const parseDate = (dateStr) => {
+        if (!dateStr) return new Date(0);
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) {
+          console.warn('Invalid date:', dateStr);
+          return new Date(0);
+        }
+        return date;
+      };
 
-// Sort results by date (newest first) with logging
-const sortedResults = [...resultsData].sort((a, b) => {
-  const dateA = parseDate(a.drawDate);
-  const dateB = parseDate(b.drawDate);
-  return dateB.getTime() - dateA.getTime(); // Descending order (newest first)
-});
+      const sortedResults = [...resultsData].sort((a, b) => {
+        const dateA = parseDate(a.drawDate);
+        const dateB = parseDate(b.drawDate);
+        return dateB.getTime() - dateA.getTime();
+      });
 
-// Log first few dates for debugging
-if (sortedResults.length > 0) {
-  console.log('First 3 sorted dates:', 
-    sortedResults.slice(0, 3).map(r => r.drawDate)
-  );
-}
-
-// Always set the results regardless of success flag
-if (resultsData.length > 0 || !isLoading) {
-  setHistoricalResults(prev => {
-    // When appending, combine arrays and re-sort to maintain proper date order
-    const existingResults = prev[gameType]?.results || [];
-    const combinedResults = append 
-      ? [...existingResults, ...sortedResults]
-      : sortedResults;
-    
-    // Re-sort combined results to ensure proper date order across pagination
-    const finalResults = append 
-      ? combinedResults.sort((a, b) => {
-          const dateA = parseDate(a.drawDate);
-          const dateB = parseDate(b.drawDate);
-          return dateB.getTime() - dateA.getTime(); // Descending order (newest first)
-        })
-      : combinedResults;
-    
-    // Log after sorting
-    if (finalResults.length > 0) {
-      console.log('Final sorted - First 5 dates:', 
-        finalResults.slice(0, 5).map(r => r.drawDate)
-      );
-    }
-    
-    return {
-      ...prev,
-      [gameType]: {
-        results: finalResults
+      if (sortedResults.length > 0) {
+        console.log('First 3 sorted dates:', 
+          sortedResults.slice(0, 3).map(r => r.drawDate)
+        );
       }
-    };
-  });
+
+      if (resultsData.length > 0 || !isLoading) {
+        setHistoricalResults(prev => {
+          const existingResults = prev[gameType]?.results || [];
+          const combinedResults = append 
+            ? [...existingResults, ...sortedResults]
+            : sortedResults;
+          
+          const finalResults = append 
+            ? combinedResults.sort((a, b) => {
+                const dateA = parseDate(a.drawDate);
+                const dateB = parseDate(b.drawDate);
+                return dateB.getTime() - dateA.getTime();
+              })
+            : combinedResults;
+          
+          if (finalResults.length > 0) {
+            console.log('Final sorted - First 5 dates:', 
+              finalResults.slice(0, 5).map(r => r.drawDate)
+            );
+          }
+          
+          return {
+            ...prev,
+            [gameType]: {
+              results: finalResults
+            }
+          };
+        });
         
-        // Handle pagination
         if (data.pagination) {
           setPagination(data.pagination);
         } else if (data.total !== undefined || data.totalDocs !== undefined) {
@@ -2845,7 +2832,6 @@ if (resultsData.length > 0 || !isLoading) {
             hasMore: data.hasNextPage || data.hasMore || false
           });
         } else {
-          // Default pagination if none provided
           setPagination({
             page: 1,
             limit: 50,
@@ -2869,85 +2855,72 @@ if (resultsData.length > 0 || !isLoading) {
     loadHistoricalResults(selectedGameType, nextPage, true);
   };
 
-  // Fixed handleAddResult function for App.js
-// Replace the handleAddResult function (around line 2287-2327) with this version:
-
-const handleAddResult = async () => {
-  const numbers = [];
-  const numberCount = selectedGameType === '539' ? 5 : 6;
-  
-  // Validate and collect numbers
-  for (let i = 1; i <= numberCount; i++) {
-    const num = parseInt(newResult[`number${i}`]);
-    if (isNaN(num) || num < 1) {
-      showNotification(`Please enter valid number ${i}`, 'error');
-      return;
-    }
-    numbers.push(num);
-  }
-
-  // Build the result object
-  const result = {
-    numbers,
-    drawDate: newResult.drawDate || new Date().toISOString().split('T')[0]
-  };
-
-  // Add bonus number if applicable
-  if (newResult.bonus && (selectedGameType === 'mark6' || selectedGameType === 'lotto649')) {
-    const bonusNum = parseInt(newResult.bonus);
-    if (!isNaN(bonusNum)) {
-      result.bonus = bonusNum;
-    }
-  }
-
-  setIsLoading(true);
-  try {
-    // IMPORTANT: Capture the response from the API
-    const response = await api.addHistoricalResult(selectedGameType, result);
+  const handleAddResult = async () => {
+    const numbers = [];
+    const numberCount = selectedGameType === '539' ? 5 : 6;
     
-    // Check if successful and use the returned data
-    if (response && response.success) {
-      // Clear the form
-      setNewResult({ 
-        number1: '', number2: '', number3: '', number4: '', number5: '', number6: '',
-        bonus: '', drawDate: '' 
-      });
-      setShowAddForm(false);
-      
-      // If backend returns updated results, use them directly
-      if (response.results) {
-        setHistoricalResults(prev => ({
-          ...prev,
-          [selectedGameType]: {
-            results: response.results
-          }
-        }));
-        
-        // Update pagination if total is provided
-        if (response.total !== undefined) {
-          setPagination(prev => ({
-            ...prev,
-            total: response.total,
-            totalPages: Math.ceil(response.total / prev.limit)
-          }));
-        }
-        
-        showNotification(`Result added successfully! Total: ${response.total || response.results.length}`, 'success');
-      } else {
-        // Fallback: reload results from backend
-        await loadHistoricalResults(selectedGameType, 1);
-        showNotification('Result added successfully!', 'success');
+    for (let i = 1; i <= numberCount; i++) {
+      const num = parseInt(newResult[`number${i}`]);
+      if (isNaN(num) || num < 1) {
+        showNotification(`Please enter valid number ${i}`, 'error');
+        return;
       }
-    } else {
-      // Handle failure response
-      showNotification(response?.error || 'Failed to add result', 'error');
+      numbers.push(num);
     }
-  } catch (error) {
-    showNotification('Failed to add result: ' + error.message, 'error');
-  } finally {
-    setIsLoading(false);
-  }
-};
+
+    const result = {
+      numbers,
+      drawDate: newResult.drawDate || new Date().toISOString().split('T')[0]
+    };
+
+    if (newResult.bonus && (selectedGameType === 'mark6' || selectedGameType === 'lotto649')) {
+      const bonusNum = parseInt(newResult.bonus);
+      if (!isNaN(bonusNum)) {
+        result.bonus = bonusNum;
+      }
+    }
+
+    setIsLoading(true);
+    try {
+      const response = await api.addHistoricalResult(selectedGameType, result);
+      
+      if (response && response.success) {
+        setNewResult({ 
+          number1: '', number2: '', number3: '', number4: '', number5: '', number6: '',
+          bonus: '', drawDate: '' 
+        });
+        setShowAddForm(false);
+        
+        if (response.results) {
+          setHistoricalResults(prev => ({
+            ...prev,
+            [selectedGameType]: {
+              results: response.results
+            }
+          }));
+          
+          if (response.total !== undefined) {
+            setPagination(prev => ({
+              ...prev,
+              total: response.total,
+              totalPages: Math.ceil(response.total / prev.limit)
+            }));
+          }
+          
+          showNotification(`Result added successfully! Total: ${response.total || response.results.length}`, 'success');
+        } else {
+          await loadHistoricalResults(selectedGameType, 1);
+          showNotification('Result added successfully!', 'success');
+        }
+      } else {
+        showNotification(response?.error || 'Failed to add result', 'error');
+      }
+    } catch (error) {
+      showNotification('Failed to add result: ' + error.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleDeleteResult = async (resultId) => {
     const confirmed = await showConfirm('Are you sure you want to delete this result?');
@@ -2965,47 +2938,45 @@ const handleAddResult = async () => {
     }
   };
 
- const handleSync = async () => {
-  const confirmed = await showConfirm('Sync backend Excel data? This will reload all data from the Excel file.');
-  if (!confirmed) return;
+  const handleSync = async () => {
+    const confirmed = await showConfirm('Sync backend Excel data? This will reload all data from the Excel file.');
+    if (!confirmed) return;
 
-  setIsLoading(true);
-  try {
-    const response = await api.syncBackendExcel(selectedGameType);
-    
-    if (response.success && response.results) {
-      // ✅ Use the sorted results directly from sync response
-      setHistoricalResults(prev => ({
-        ...prev,
-        [selectedGameType]: {
-          results: response.results  // Already sorted by backend
+    setIsLoading(true);
+    try {
+      const response = await api.syncBackendExcel(selectedGameType);
+      
+      if (response.success && response.results) {
+        setHistoricalResults(prev => ({
+          ...prev,
+          [selectedGameType]: {
+            results: response.results
+          }
+        }));
+        
+        if (response.total !== undefined) {
+          setPagination({
+            page: 1,
+            limit: 50,
+            total: response.total,
+            totalPages: Math.ceil(response.total / 50),
+            hasMore: false
+          });
         }
-      }));
-      
-      // Update pagination
-      if (response.total !== undefined) {
-        setPagination({
-          page: 1,
-          limit: 50,
-          total: response.total,
-          totalPages: Math.ceil(response.total / 50),
-          hasMore: false
-        });
+        
+        showNotification(
+          `Sync completed! ${response.data?.length || response.results?.length || 0} results loaded`,
+          'success'
+        );
+      } else {
+        showNotification('Sync failed: ' + (response.error || 'Unknown error'), 'error');
       }
-      
-      showNotification(
-        `Sync completed! ${response.data?.length || response.results?.length || 0} results loaded`,
-        'success'
-      );
-    } else {
-      showNotification('Sync failed: ' + (response.error || 'Unknown error'), 'error');
+    } catch (error) {
+      showNotification('Sync failed: ' + error.message, 'error');
+    } finally {
+      setIsLoading(false);
     }
-  } catch (error) {
-    showNotification('Sync failed: ' + error.message, 'error');
-  } finally {
-    setIsLoading(false);
-  }
-};
+  };
 
   const numberCount = selectedGameType === '539' ? 5 : 6;
 
@@ -3016,207 +2987,244 @@ const handleAddResult = async () => {
           <div className="flex items-center justify-between p-6 border-b">
             <h2 className="text-2xl font-bold flex items-center space-x-2">
               <Shield className="h-6 w-6 text-blue-600" />
-              <span>Admin Panel - Historical Data</span>
+              <span>Admin Panel</span>
             </h2>
             <button onClick={onClose} className="text-gray-500 hover:text-gray-700 hover:scale-110 transition-all duration-200 text-2xl">×</button>
           </div>
 
+          {/* 🆕 TABS */}
+          <div className="flex border-b bg-gray-50">
+            <button
+              onClick={() => setActiveTab('historical')}
+              className={`flex-1 px-6 py-3 font-medium transition-all ${
+                activeTab === 'historical'
+                  ? 'bg-white text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              <Database className="inline h-5 w-5 mr-2" />
+              Historical Data
+            </button>
+            <button
+              onClick={() => setActiveTab('users')}
+              className={`flex-1 px-6 py-3 font-medium transition-all ${
+                activeTab === 'users'
+                  ? 'bg-white text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              <User className="inline h-5 w-5 mr-2" />
+              User Management
+            </button>
+          </div>
+
           <div className="flex-1 overflow-y-auto p-6">
-            <div className="mb-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex space-x-2">
-                  {['539', 'mark6', 'lotto649'].map(gameType => (
+            {/* Historical Data Tab */}
+            {activeTab === 'historical' && (
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex space-x-2">
+                    {['539', 'mark6', 'lotto649'].map(gameType => (
+                      <button
+                        key={gameType}
+                        onClick={() => setSelectedGameType(gameType)}
+                        className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 hover:scale-105 ${
+                          selectedGameType === gameType
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        {gameType.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex space-x-2">
                     <button
-                      key={gameType}
-                      onClick={() => setSelectedGameType(gameType)}
-                      className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 hover:scale-105 ${
-                        selectedGameType === gameType
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                      }`}
-                    >
-                      {gameType.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex space-x-2">
-                  <button
-                    onClick={() => setShowAddForm(!showAddForm)}
-                    className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 hover:scale-105 transition-all duration-200"
-                  >
-                    <span>{showAddForm ? 'Hide Form' : 'Add New Result'}</span>
-                  </button>
-                  <button
-                    onClick={handleSync}
-                    disabled={isLoading}
-                    className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 hover:scale-105 transition-all duration-200 disabled:opacity-50"
-                  >
-                    <Database className="h-4 w-4" />
-                    <span>Sync Excel</span>
-                  </button>
-                  {(selectedGameType === '539' || selectedGameType === 'mark6' || selectedGameType === 'lotto649') && (
-                    <button
-                      onClick={() => setShowScraper(true)}
+                      onClick={() => setShowAddForm(!showAddForm)}
                       className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 hover:scale-105 transition-all duration-200"
                     >
-                      <Database className="h-4 w-4" />
-                      <span>Auto Update Results</span>
+                      <span>{showAddForm ? 'Hide Form' : 'Add New Result'}</span>
                     </button>
-                  )}
+                    <button
+                      onClick={handleSync}
+                      disabled={isLoading}
+                      className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 hover:scale-105 transition-all duration-200 disabled:opacity-50"
+                    >
+                      <Database className="h-4 w-4" />
+                      <span>Sync Excel</span>
+                    </button>
+                    {(selectedGameType === '539' || selectedGameType === 'mark6' || selectedGameType === 'lotto649') && (
+                      <button
+                        onClick={() => setShowScraper(true)}
+                        className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 hover:scale-105 transition-all duration-200"
+                      >
+                        <Database className="h-4 w-4" />
+                        <span>Auto Update Results</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              {showAddForm && (
-                <div className="bg-gray-50 p-4 rounded-lg mb-4 border-2 border-blue-200">
-                  <h3 className="font-semibold mb-3 text-lg">Add New Result</h3>
-                  
-                  <div className="mb-3">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Numbers (1-{selectedGameType === '539' ? '39' : '49'})
-                    </label>
-                    <div className={`grid grid-cols-${numberCount} gap-2 mb-3`}>
-                      {Array.from({ length: numberCount }).map((_, index) => (
+                {showAddForm && (
+                  <div className="bg-gray-50 p-4 rounded-lg mb-4 border-2 border-blue-200">
+                    <h3 className="font-semibold mb-3 text-lg">Add New Result</h3>
+                    
+                    <div className="mb-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Numbers (1-{selectedGameType === '539' ? '39' : '49'})
+                      </label>
+                      <div className={`grid grid-cols-${numberCount} gap-2 mb-3`}>
+                        {Array.from({ length: numberCount }).map((_, index) => (
+                          <input
+                            key={index}
+                            type="number"
+                            min="1"
+                            max={selectedGameType === '539' ? '39' : '49'}
+                            placeholder={`#${index + 1}`}
+                            value={newResult[`number${index + 1}`]}
+                            onChange={(e) => handleNumberChange(`number${index + 1}`, e.target.value)}
+                            className="px-3 py-2 border rounded text-center"
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid md:grid-cols-2 gap-3">
+                      {(selectedGameType === 'mark6' || selectedGameType === 'lotto649') && (
                         <input
-                          key={index}
                           type="number"
                           min="1"
-                          max={selectedGameType === '539' ? '39' : '49'}
-                          placeholder={`#${index + 1}`}
-                          value={newResult[`number${index + 1}`]}
-                          onChange={(e) => handleNumberChange(`number${index + 1}`, e.target.value)}
-                          className="px-3 py-2 border rounded text-center"
+                          max="49"
+                          placeholder="Bonus Number"
+                          value={newResult.bonus}
+                          onChange={(e) => handleNumberChange('bonus', e.target.value)}
+                          className="px-3 py-2 border rounded"
                         />
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="grid md:grid-cols-2 gap-3">
-                    {(selectedGameType === 'mark6' || selectedGameType === 'lotto649') && (
+                      )}
                       <input
-                        type="number"
-                        min="1"
-                        max="49"
-                        placeholder="Bonus Number"
-                        value={newResult.bonus}
-                        onChange={(e) => handleNumberChange('bonus', e.target.value)}
+                        type="date"
+                        value={newResult.drawDate}
+                        onChange={(e) => handleNumberChange('drawDate', e.target.value)}
                         className="px-3 py-2 border rounded"
                       />
-                    )}
-                    <input
-                      type="date"
-                      value={newResult.drawDate}
-                      onChange={(e) => handleNumberChange('drawDate', e.target.value)}
-                      className="px-3 py-2 border rounded"
-                    />
-                  </div>
-                  
-                  <div className="flex space-x-2 mt-3">
-                    <button
-                      onClick={handleAddResult}
-                      disabled={isLoading}
-                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 hover:scale-105 transition-all duration-200 disabled:opacity-50"
-                    >
-                      Add Result
-                    </button>
-                    <button
-                      onClick={() => setShowAddForm(false)}
-                      className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 hover:scale-105 transition-all duration-200"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-lg">Historical Results</h3>
-                {pagination.total > 0 && (
-                  <div className="text-sm text-gray-600 bg-blue-50 px-3 py-1 rounded-full">
-                    Showing <span className="font-semibold">{historicalResults[selectedGameType]?.results?.length || 0}</span> of <span className="font-semibold">{pagination.total}</span>
+                    </div>
+                    
+                    <div className="flex space-x-2 mt-3">
+                      <button
+                        onClick={handleAddResult}
+                        disabled={isLoading}
+                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 hover:scale-105 transition-all duration-200 disabled:opacity-50"
+                      >
+                        Add Result
+                      </button>
+                      <button
+                        onClick={() => setShowAddForm(false)}
+                        className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 hover:scale-105 transition-all duration-200"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 )}
-              </div>
 
-              {isLoading && (!historicalResults[selectedGameType]?.results || historicalResults[selectedGameType].results.length === 0) ? (
-                <div className="flex flex-col items-center justify-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-blue-500 mb-2" />
-                  <p className="text-gray-600">Loading results...</p>
-                </div>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    {historicalResults[selectedGameType]?.results?.length > 0 ? (
-                      historicalResults[selectedGameType].results.map((result, index) => (
-                        <div key={result.id || index} className="flex items-center justify-between p-3 bg-white border rounded-lg hover:shadow-md transition-all duration-200">
-                          <div className="flex items-center space-x-4">
-                            <div className="text-sm text-gray-500 min-w-[100px]">
-                              {result.drawDate ? new Date(result.drawDate).toLocaleDateString() : 'N/A'}
-                            </div>
-                            <div className="flex space-x-1">
-                              {result.numbers?.map((num, i) => (
-                                <div key={i} className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-white flex items-center justify-center text-xs font-bold">
-                                  {num}
-                                </div>
-                              ))}
-                              {result.bonus && (
-                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-blue-800 text-white flex items-center justify-center text-xs font-bold">
-                                  {result.bonus}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => handleDeleteResult(result.id)}
-                            disabled={isLoading}
-                            className="text-red-600 hover:text-red-800 hover:scale-105 transition-all duration-200 disabled:opacity-50"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                        <Database className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                        <p className="text-gray-500">No historical results</p>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-lg">Historical Results</h3>
+                    {pagination.total > 0 && (
+                      <div className="text-sm text-gray-600 bg-blue-50 px-3 py-1 rounded-full">
+                        Showing <span className="font-semibold">{historicalResults[selectedGameType]?.results?.length || 0}</span> of <span className="font-semibold">{pagination.total}</span>
                       </div>
                     )}
                   </div>
 
-                  {pagination.hasMore && (
-                    <div className="flex justify-center mt-6">
-                      <button
-                        onClick={handleLoadMore}
-                        disabled={isLoading}
-                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 hover:scale-105 transition-all duration-200 disabled:opacity-50 flex items-center space-x-2"
-                      >
-                        {isLoading ? (
-                          <>
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            <span>Loading...</span>
-                          </>
+                  {isLoading && (!historicalResults[selectedGameType]?.results || historicalResults[selectedGameType].results.length === 0) ? (
+                    <div className="flex flex-col items-center justify-center py-12">
+                      <Loader2 className="h-8 w-8 animate-spin text-blue-500 mb-2" />
+                      <p className="text-gray-600">Loading results...</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-2">
+                        {historicalResults[selectedGameType]?.results?.length > 0 ? (
+                          historicalResults[selectedGameType].results.map((result, index) => (
+                            <div key={result.id || index} className="flex items-center justify-between p-3 bg-white border rounded-lg hover:shadow-md transition-all duration-200">
+                              <div className="flex items-center space-x-4">
+                                <div className="text-sm text-gray-500 min-w-[100px]">
+                                  {result.drawDate ? new Date(result.drawDate).toLocaleDateString() : 'N/A'}
+                                </div>
+                                <div className="flex space-x-1">
+                                  {result.numbers?.map((num, i) => (
+                                    <div key={i} className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-white flex items-center justify-center text-xs font-bold">
+                                      {num}
+                                    </div>
+                                  ))}
+                                  {result.bonus && (
+                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-blue-800 text-white flex items-center justify-center text-xs font-bold">
+                                      {result.bonus}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleDeleteResult(result.id)}
+                                disabled={isLoading}
+                                className="text-red-600 hover:text-red-800 hover:scale-105 transition-all duration-200 disabled:opacity-50"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          ))
                         ) : (
-                          <>
-                            <span>Load More Results</span>
-                            <span className="text-xs bg-blue-500 px-2 py-1 rounded">
-                              {historicalResults[selectedGameType]?.results?.length || 0} / {pagination.total}
-                            </span>
-                          </>
+                          <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                            <Database className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                            <p className="text-gray-500">No historical results</p>
+                          </div>
                         )}
-                      </button>
-                    </div>
-                  )}
+                      </div>
 
-                  {!pagination.hasMore && pagination.total > 0 && (
-                    <div className="text-center text-sm bg-green-50 text-green-700 py-3 rounded-lg">
-                      <CheckCircle2 className="h-4 w-4 inline mr-2" />
-                      All {pagination.total} results loaded
-                    </div>
+                      {pagination.hasMore && (
+                        <div className="flex justify-center mt-6">
+                          <button
+                            onClick={handleLoadMore}
+                            disabled={isLoading}
+                            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 hover:scale-105 transition-all duration-200 disabled:opacity-50 flex items-center space-x-2"
+                          >
+                            {isLoading ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <span>Loading...</span>
+                              </>
+                            ) : (
+                              <>
+                                <span>Load More Results</span>
+                                <span className="text-xs bg-blue-500 px-2 py-1 rounded">
+                                  {historicalResults[selectedGameType]?.results?.length || 0} / {pagination.total}
+                                </span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+
+                      {!pagination.hasMore && pagination.total > 0 && (
+                        <div className="text-center text-sm bg-green-50 text-green-700 py-3 rounded-lg">
+                          <CheckCircle2 className="h-4 w-4 inline mr-2" />
+                          All {pagination.total} results loaded
+                        </div>
+                      )}
+                    </>
                   )}
-                </>
-              )}
-            </div>
+                </div>
+              </div>
+            )}
+
+            {/* User Management Tab */}
+            {activeTab === 'users' && (
+              <UserManagementContent 
+                showNotification={showNotification}
+                showConfirm={showConfirm}
+              />
+            )}
           </div>
         </div>
       </div>
