@@ -2374,6 +2374,7 @@ const UserManagementContent = ({ showNotification, showConfirm }) => {
       setIsLoading(false);
     }
   };
+
   const deleteAllGoogleUsers = async () => {
     const confirmed = await showConfirm(
       '⚠️ WARNING: This will delete ALL Google users (non-admin)! This action cannot be undone. Are you absolutely sure?'
@@ -2408,6 +2409,7 @@ const UserManagementContent = ({ showNotification, showConfirm }) => {
       setIsLoading(false);
     }
   };
+
   const cleanupGoogleUser = async () => {
     if (!cleanupEmail || cleanupEmail.trim().length === 0) {
       showNotification('Please enter an email address', 'error');
@@ -2473,6 +2475,14 @@ const UserManagementContent = ({ showNotification, showConfirm }) => {
             <span>Delete All Users</span>
           </button>
           <button
+            onClick={deleteAllGoogleUsers}
+            disabled={isLoading}
+            className="flex items-center space-x-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all duration-200 disabled:opacity-50"
+          >
+            <Trash2 className="h-4 w-4" />
+            <span>Delete All Google Users</span>
+          </button>
+          <button
             onClick={() => setShowCleanupForm(!showCleanupForm)}
             className="flex items-center space-x-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-all duration-200"
           >
@@ -2515,7 +2525,8 @@ const UserManagementContent = ({ showNotification, showConfirm }) => {
           </div>
         </div>
       )}
-<div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+
+      <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
         <div className="flex items-start space-x-2">
           <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-yellow-800">
@@ -2523,7 +2534,8 @@ const UserManagementContent = ({ showNotification, showConfirm }) => {
             <ul className="mt-1 ml-4 list-disc">
               <li>Admin accounts cannot be deleted</li>
               <li>You cannot delete your own account</li>
-              <li>"Delete All" removes all non-admin users</li>
+              <li>"Delete All Users" removes ALL non-admin users</li>
+              <li>"Delete All Google Users" removes only Google authenticated users</li>
               <li>"Cleanup Google User" removes stuck registrations by email</li>
             </ul>
           </div>
@@ -2585,29 +2597,13 @@ const UserManagementContent = ({ showNotification, showConfirm }) => {
                     </div>
                   </div>
                   <button
-            onClick={deleteAllUsers}
-            disabled={isLoading || users.length <= 1}
-            className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all duration-200 disabled:opacity-50"
-          >
-            <Trash2 className="h-4 w-4" />
-            <span>Delete All Users</span>
-          </button>
-          {/* 🆕 NEW BUTTON HERE */}
-          <button
-            onClick={deleteAllGoogleUsers}
-            disabled={isLoading}
-            className="flex items-center space-x-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all duration-200 disabled:opacity-50"
-          >
-            <Trash2 className="h-4 w-4" />
-            <span>Delete All Google Users</span>
-          </button>
-          <button
-            onClick={() => setShowCleanupForm(!showCleanupForm)}
-            className="flex items-center space-x-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-all duration-200"
-          >
-            <AlertCircle className="h-4 w-4" />
-            <span>Cleanup Google User</span>
-          </button>
+                    onClick={() => deleteUser(user._id, user.username)}
+                    disabled={isLoading || user.role === 'admin'}
+                    className="flex items-center space-x-2 px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span className="text-sm">Delete</span>
+                  </button>
                 </div>
               ))}
             </>
