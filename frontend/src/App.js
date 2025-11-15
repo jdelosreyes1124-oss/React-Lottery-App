@@ -3878,12 +3878,25 @@ const GoogleLoginScreen = () => {
             <p className="text-gray-600">Sign in to continue</p>
           </div>
 
-          {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-3">
-              <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-red-700">{error}</p>
-            </div>
-          )}
+         {error && (
+  <div className="mb-6 p-4 bg-red-50 border-2 border-red-200 rounded-lg shadow-lg animate-pulse">
+    <div className="flex items-start space-x-3">
+      <AlertCircle className="h-6 w-6 text-red-500 flex-shrink-0 mt-0.5" />
+      <div className="flex-1">
+        <p className="text-sm font-semibold text-red-800 mb-1">Sign In Error</p>
+        <p className="text-sm text-red-700">{error}</p>
+        {(error.includes('not registered') || error.includes('not found') || error.includes('HTTP 404')) && (
+          <button onClick={() => setShowSignUp(true)}>
+            Create Account Now
+          </button>
+        )}
+      </div>
+      <button onClick={() => setError('')}>
+        <X className="h-5 w-5" />
+      </button>
+    </div>
+  </div>
+)}
 
           {/* Google Sign-In Button */}
           {GOOGLE_CLIENT_ID && (
