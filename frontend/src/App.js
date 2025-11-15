@@ -2489,7 +2489,6 @@ const UserManagementContent = ({ showNotification, showConfirm }) => {
     </div>
   );
 };
-
 // Admin Panel Component 
 const AdminPanel = ({ onClose }) => {
   const { user, isGoogleUser } = useAuth();
