@@ -2989,12 +2989,30 @@ const SignUpForm = ({ onClose, onSwitchToLogin }) => {
   const [formData, setFormData] = useState({
     username: '',
     password: '',
-    confirmPassword: '',
-    email: ''
+    confirmPassword: ''
   });
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  const handleGoogleResponse = React.useCallback(async (response) => {
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      // Try to register with Google
+      const result = await api.googleRegister(response.credential);
+      if (result.success) {
+        onClose();
+      } else {
+        setError(result.error || 'Google sign up failed. Account may already exist.');
+      }
+    } catch (err) {
+      setError('Google sign up failed. Please try again or use username/password.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [onClose]);
 
   useEffect(() => {
     // Load Google Sign-In script for registration
@@ -3033,33 +3051,11 @@ const SignUpForm = ({ onClose, onSwitchToLogin }) => {
         document.body.removeChild(script);
       }
     };
-  }, []);
-
-  const handleGoogleResponse = async (response) => {
-    setIsLoading(true);
-    setError('');
-    
-    try {
-      const result = await googleLogin(response.credential);
-      if (result.success) {
-        onClose();
-      } else {
-        setError(result.error || 'Google sign up failed');
-      }
-    } catch (err) {
-      setError('Google sign up failed. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, [handleGoogleResponse]);
 
   const validateForm = () => {
     if (!formData.username || formData.username.length < 3) {
       setError('Username must be at least 3 characters');
-      return false;
-    }
-    if (!formData.email || !/\S+@\S+\.\S+/.test(formData.email)) {
-      setError('Please enter a valid email address');
       return false;
     }
     if (!formData.password || formData.password.length < 6) {
@@ -3084,7 +3080,6 @@ const SignUpForm = ({ onClose, onSwitchToLogin }) => {
     try {
       const result = await register({
         username: formData.username,
-        email: formData.email,
         password: formData.password
       });
 
@@ -3134,7 +3129,7 @@ const SignUpForm = ({ onClose, onSwitchToLogin }) => {
                 <div className="w-full border-t border-gray-300"></div>
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-4 bg-white text-gray-500">Or sign up with email</span>
+                <span className="px-4 bg-white text-gray-500">Or sign up with username</span>
               </div>
             </div>
           )}
@@ -3155,24 +3150,6 @@ const SignUpForm = ({ onClose, onSwitchToLogin }) => {
                 required
                 disabled={isLoading}
                 minLength={3}
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <svg className="inline h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
-                </svg>
-                Email Address
-              </label>
-              <input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder="your.email@example.com"
-                required
-                disabled={isLoading}
               />
             </div>
 
