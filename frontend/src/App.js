@@ -2984,6 +2984,7 @@ const WebScraperPanel = ({ gameType, onClose }) => {
 };
 
 // Sign Up Form Component - FIXED VERSION
+// Sign Up Form Component - FIXED VERSION
 const SignUpForm = ({ onClose, onSwitchToLogin }) => {
   const { register } = useAuth();
   const [formData, setFormData] = useState({
@@ -3011,34 +3012,62 @@ const SignUpForm = ({ onClose, onSwitchToLogin }) => {
       return;
     }
 
+    if (!googleToken) {
+      setError('Google token missing. Please try again.');
+      setShowGoogleUsernamePrompt(false);
+      return;
+    }
+
     setIsLoading(true);
     setError('');
     
+    console.log('🔵 Starting Google registration...');
+    console.log('📝 Username:', googleUsername);
+    console.log('🔑 Token exists:', !!googleToken);
+    console.log('🌐 API URL:', `${API_BASE_URL}/auth/google/register`);
+    
     try {
+      const payload = { 
+        token: googleToken,
+        username: googleUsername 
+      };
+      
+      console.log('📦 Sending payload:', payload);
+      
       const response = await fetch(`${API_BASE_URL}/auth/google/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          token: googleToken,
-          username: googleUsername 
-        }),
+        body: JSON.stringify(payload),
         credentials: 'include'
       });
 
-      const data = await response.json();
+      console.log('📡 Response status:', response.status);
+      
+      // Try to parse response
+      let data;
+      try {
+        data = await response.json();
+        console.log('📄 Response data:', data);
+      } catch (parseError) {
+        console.error('❌ Failed to parse response:', parseError);
+        throw new Error('Server returned invalid response');
+      }
 
-      if (data.success) {
+      if (response.ok && data.success) {
+        console.log('✅ Registration successful!');
         // Registration successful - close the form
         onClose();
         window.location.reload(); // Refresh to update auth state
       } else {
-        setError(data.error || 'Google sign-up failed');
+        console.error('❌ Registration failed:', data.error || data.message);
+        setError(data.error || data.message || 'Google sign-up failed');
         setShowGoogleUsernamePrompt(false);
         setGoogleToken(null);
         setGoogleUsername('');
       }
     } catch (err) {
-      setError('Google sign-up failed. Please try again.');
+      console.error('❌ Registration error:', err);
+      setError('Google sign-up failed: ' + err.message);
       setShowGoogleUsernamePrompt(false);
       setGoogleToken(null);
       setGoogleUsername('');

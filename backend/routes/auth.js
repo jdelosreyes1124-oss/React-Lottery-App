@@ -11,26 +11,43 @@ const dbService = require('../services/databaseService');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-// POST /api/auth/google/register - Google OAuth Registration
+// POST /api/auth/google/register - Google OAuth Registration (WITH DEBUG LOGGING)
 router.post('/google/register', async (req, res) => {
   try {
+    console.log('🔵 Google registration request received');
+    console.log('📦 Request body:', JSON.stringify(req.body, null, 2));
+    console.log('🔑 Token exists:', !!req.body.token);
+    console.log('📝 Username:', req.body.username);
+    
     const { token, username } = req.body;
     
+    // Validate token
     if (!token) {
+      console.error('❌ Missing token');
       return res.status(400).json({ 
         success: false, 
         error: 'Google token is required' 
       });
     }
 
+    // Validate username
     if (!username) {
+      console.error('❌ Missing username');
       return res.status(400).json({ 
         success: false, 
         error: 'Username is required for Google registration' 
       });
     }
 
-    console.log('🔐 Google OAuth registration attempt with username:', username);
+    if (username.length < 3) {
+      console.error('❌ Username too short:', username.length);
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Username must be at least 3 characters' 
+      });
+    }
+
+    console.log('✅ Validation passed, verifying Google token...');
     
     // Verify Google token
     const ticket = await googleClient.verifyIdToken({
@@ -44,6 +61,7 @@ router.post('/google/register', async (req, res) => {
     console.log(`✅ Google token verified for: ${email}`);
     
     if (!email_verified) {
+      console.error('❌ Email not verified by Google');
       return res.status(403).json({ 
         success: false, 
         error: 'Email not verified by Google' 
@@ -51,6 +69,7 @@ router.post('/google/register', async (req, res) => {
     }
 
     // Check if email already exists
+    console.log('🔍 Checking for existing user with email:', email);
     let existingUser = await User.findOne({ 
       $or: [
         { email: email.toLowerCase() }, 
@@ -59,6 +78,7 @@ router.post('/google/register', async (req, res) => {
     });
 
     if (existingUser) {
+      console.error('❌ User already exists:', existingUser.email);
       return res.status(409).json({ 
         success: false, 
         error: 'This Google account is already registered. Please sign in instead.' 
@@ -66,11 +86,13 @@ router.post('/google/register', async (req, res) => {
     }
 
     // Check if username already exists
+    console.log('🔍 Checking if username is available:', username);
     const userWithUsername = await User.findOne({ 
       username: username.toLowerCase() 
     });
 
     if (userWithUsername) {
+      console.error('❌ Username already taken:', username);
       return res.status(409).json({ 
         success: false, 
         error: 'Username already taken. Please choose another.' 
@@ -80,6 +102,8 @@ router.post('/google/register', async (req, res) => {
     // Get next user ID
     const lastUser = await User.findOne().sort({ _id: -1 });
     const nextId = lastUser ? lastUser._id + 1 : 1;
+    
+    console.log('📝 Creating new user with ID:', nextId);
     
     // Create new user
     const newUser = await User.create({
@@ -109,8 +133,18 @@ router.post('/google/register', async (req, res) => {
     };
 
     await new Promise((resolve, reject) => {
-      req.session.save(err => err ? reject(err) : resolve());
+      req.session.save(err => {
+        if (err) {
+          console.error('❌ Session save error:', err);
+          reject(err);
+        } else {
+          console.log('✅ Session saved successfully');
+          resolve();
+        }
+      });
     });
+
+    console.log('✅ Registration complete, sending response');
 
     res.status(201).json({ 
       success: true, 
@@ -120,10 +154,13 @@ router.post('/google/register', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Google registration error:', error);
+    console.error('Error stack:', error.stack);
+    
     res.status(500).json({ 
       success: false, 
       error: 'Google registration failed',
-      message: error.message
+      message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
