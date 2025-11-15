@@ -715,5 +715,50 @@ router.delete('/users/cleanup-google/:email', async (req, res) => {
     });
   }
 });
+// 🆕 DELETE /api/auth/users/delete-all-google - Delete all Google users (ADMIN ONLY)
+router.delete('/users/delete-all-google', async (req, res) => {
+  try {
+    // Check if user is authenticated and is admin
+    if (!req.session || !req.session.userId) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Not authenticated' 
+      });
+    }
+
+    const currentUser = await User.findOne({ _id: parseInt(req.session.userId) });
+    
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Admin access required' 
+      });
+    }
+
+    console.log('🧹 Admin requesting to delete all Google users...');
+    
+    // Delete all users with Google auth provider (except admins)
+    const result = await User.deleteMany({ 
+      authProvider: 'google',
+      role: { $ne: 'admin' }  // Don't delete admin accounts
+    });
+
+    console.log(`✅ Deleted ${result.deletedCount} Google users`);
+
+    res.json({ 
+      success: true, 
+      message: `Successfully deleted ${result.deletedCount} Google user(s)`,
+      deletedCount: result.deletedCount
+    });
+
+  } catch (error) {
+    console.error('❌ Delete all Google users error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to delete Google users',
+      message: error.message 
+    });
+  }
+});
 
 module.exports = router;
