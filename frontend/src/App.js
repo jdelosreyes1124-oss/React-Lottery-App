@@ -3879,24 +3879,40 @@ const GoogleLoginScreen = () => {
           </div>
 
          {error && (
-  <div className="mb-6 p-4 bg-red-50 border-2 border-red-200 rounded-lg shadow-lg animate-pulse">
-    <div className="flex items-start space-x-3">
-      <AlertCircle className="h-6 w-6 text-red-500 flex-shrink-0 mt-0.5" />
-      <div className="flex-1">
-        <p className="text-sm font-semibold text-red-800 mb-1">Sign In Error</p>
-        <p className="text-sm text-red-700">{error}</p>
-        {(error.includes('not registered') || error.includes('not found') || error.includes('HTTP 404')) && (
-          <button onClick={() => setShowSignUp(true)}>
-            Create Account Now
-          </button>
-        )}
-      </div>
-      <button onClick={() => setError('')}>
-        <X className="h-5 w-5" />
-      </button>
-    </div>
-  </div>
-)}
+            <div className="mb-6 p-5 bg-gradient-to-r from-red-50 to-red-100 border-2 border-red-300 rounded-xl shadow-xl">
+              <div className="flex items-start space-x-3">
+                <div className="flex-shrink-0">
+                  <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
+                    <AlertCircle className="h-6 w-6 text-white" />
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <h4 className="text-base font-bold text-red-900 mb-2">Sign In Failed</h4>
+                  <p className="text-sm text-red-800 mb-3">{error}</p>
+                  {(error.includes('not registered') || error.includes('not found') || error.includes('HTTP 404') || error.includes('USER_NOT_FOUND')) && (
+                    <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded mb-3">
+                      <p className="text-xs font-medium text-yellow-800 mb-2">
+                        ⚠️ This Google account hasn't been registered yet!
+                      </p>
+                      <button
+                        onClick={() => setShowSignUp(true)}
+                        className="w-full mt-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg font-semibold hover:shadow-lg hover:scale-105 transition-all duration-200 flex items-center justify-center space-x-2"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span>Create Account Now</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <button 
+                  onClick={() => setError('')}
+                  className="flex-shrink-0 text-red-500 hover:text-red-700 hover:scale-110 transition-all duration-200"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Google Sign-In Button */}
           {GOOGLE_CLIENT_ID && (
