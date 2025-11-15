@@ -3836,10 +3836,12 @@ const GoogleLoginScreen = () => {
       const result = await googleLogin(token);
       if (!result.success) {
         // Check if account needs to be registered
-        if (result.error && result.error.includes('not registered')) {
-          setError('Google account not registered. Please sign up first.');
+        if (result.error === 'USER_NOT_FOUND' || 
+            (result.message && result.message.includes('not found')) ||
+            (result.error && result.error.includes('not registered'))) {
+          setError('⚠️ This Google account is not registered yet. Please click "Sign Up" below to create your account first.');
         } else {
-          setError(result.error || 'Google login failed');
+          setError(result.error || result.message || 'Google login failed');
         }
       }
     } catch (err) {
