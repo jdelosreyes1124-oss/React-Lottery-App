@@ -2273,7 +2273,222 @@ const ConfirmDialog = ({ message, onConfirm, onCancel }) => {
     </div>
   );
 };
+const UserManagementContent = ({ showNotification, showConfirm }) => {
+  const [users, setUsers] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
 
+  const loadUsers = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/users/list`, {
+        credentials: 'include'
+      });
+      
+      if (response.status === 401) {
+        showNotification('Please log in as admin', 'error');
+        return;
+      }
+      
+      if (response.status === 403) {
+        showNotification('Admin access required', 'error');
+        return;
+      }
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        setUsers(data.users);
+        showNotification(`Loaded ${data.total} users`, 'success');
+      } else {
+        showNotification(data.error || 'Failed to load users', 'error');
+      }
+    } catch (error) {
+      showNotification('Failed to load users: ' + error.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteUser = async (userId, username) => {
+    const confirmed = await showConfirm(
+      `Are you sure you want to delete user "${username}"? This action cannot be undone.`
+    );
+    
+    if (!confirmed) return;
+
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/users/${userId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        showNotification(`User "${username}" deleted successfully`, 'success');
+        loadUsers();
+      } else {
+        showNotification(data.error || 'Failed to delete user', 'error');
+      }
+    } catch (error) {
+      showNotification('Failed to delete user: ' + error.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteAllUsers = async () => {
+    const confirmed = await showConfirm(
+      '⚠️ WARNING: This will delete ALL non-admin users! This action cannot be undone. Are you absolutely sure?'
+    );
+    
+    if (!confirmed) return;
+
+    const doubleConfirm = await showConfirm(
+      '🚨 FINAL CONFIRMATION: Delete all users except admins?'
+    );
+    
+    if (!doubleConfirm) return;
+
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/users/delete-all`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        showNotification(`Successfully deleted ${data.deletedCount} users`, 'success');
+        loadUsers();
+      } else {
+        showNotification(data.error || 'Failed to delete users', 'error');
+      }
+    } catch (error) {
+      showNotification('Failed to delete users: ' + error.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center space-x-2">
+          <User className="h-6 w-6 text-blue-600" />
+          <h3 className="text-xl font-bold text-gray-800">User Management</h3>
+        </div>
+        <div className="flex space-x-2">
+          <button
+            onClick={loadUsers}
+            disabled={isLoading}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-200 disabled:opacity-50"
+          >
+            <RotateCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+          <button
+            onClick={deleteAllUsers}
+            disabled={isLoading || users.length <= 1}
+            className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all duration-200 disabled:opacity-50"
+          >
+            <Trash2 className="h-4 w-4" />
+            <span>Delete All Users</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+        <div className="flex items-start space-x-2">
+          <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-yellow-800">
+            <p className="font-medium">Important:</p>
+            <ul className="mt-1 ml-4 list-disc">
+              <li>Admin accounts cannot be deleted</li>
+              <li>You cannot delete your own account</li>
+              <li>"Delete All" removes all non-admin users</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {isLoading && users.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-500 mb-2" />
+          <p className="text-gray-600">Loading users...</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {users.length === 0 ? (
+            <div className="text-center py-12 bg-gray-50 rounded-lg">
+              <User className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+              <p className="text-gray-600">No users found</p>
+            </div>
+          ) : (
+            <>
+              <div className="mb-2 text-sm text-gray-600">
+                Total Users: <span className="font-semibold">{users.length}</span>
+              </div>
+              {users.map((user) => (
+                <div
+                  key={user._id}
+                  className="flex items-center justify-between p-4 bg-gray-50 border border-gray-200 rounded-lg hover:shadow-md transition-all duration-200"
+                >
+                  <div className="flex items-center space-x-4">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      user.role === 'admin' ? 'bg-red-100' : 'bg-blue-100'
+                    }`}>
+                      {user.role === 'admin' ? (
+                        <Shield className="h-5 w-5 text-red-600" />
+                      ) : (
+                        <User className="h-5 w-5 text-blue-600" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className="font-semibold text-gray-800">{user.username}</span>
+                        {user.role === 'admin' && (
+                          <span className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full font-medium">
+                            ADMIN
+                          </span>
+                        )}
+                        {user.authProvider === 'google' && (
+                          <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">
+                            Google
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        {user.email || 'No email'}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        ID: {user._id} | Last Login: {user.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : 'Never'}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => deleteUser(user._id, user.username)}
+                    disabled={isLoading || user.role === 'admin'}
+                    className="flex items-center space-x-2 px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span className="text-sm">Delete</span>
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 // Admin Panel Component 
 const AdminPanel = ({ onClose }) => {
   const { user, isGoogleUser } = useAuth();
@@ -2282,6 +2497,7 @@ const AdminPanel = ({ onClose }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showScraper, setShowScraper] = useState(false);
+  const [activeTab, setActiveTab] = useState('historical'); // or 'users'
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 50,

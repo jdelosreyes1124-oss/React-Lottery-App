@@ -499,5 +499,157 @@ router.post('/logout', async (req, res) => {
     });
   }
 });
+router.delete('/users/delete-all', async (req, res) => {
+  try {
+    // Check if user is authenticated and is admin
+    if (!req.session || !req.session.userId) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Not authenticated' 
+      });
+    }
 
+    const currentUser = await User.findOne({ _id: parseInt(req.session.userId) });
+    
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Admin access required' 
+      });
+    }
+
+    console.log('🗑️ Admin requesting to delete all users (except admin)...');
+    
+    // Delete all users except admin accounts
+    const result = await User.deleteMany({ 
+      role: { $ne: 'admin' }  // Don't delete admin accounts
+    });
+
+    console.log(`✅ Deleted ${result.deletedCount} users`);
+
+    res.json({ 
+      success: true, 
+      message: `Successfully deleted ${result.deletedCount} user(s)`,
+      deletedCount: result.deletedCount
+    });
+
+  } catch (error) {
+    console.error('❌ Delete all users error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to delete users',
+      message: error.message 
+    });
+  }
+});
+
+// GET /api/auth/users/list - List all users (ADMIN ONLY)
+router.get('/users/list', async (req, res) => {
+  try {
+    // Check if user is authenticated and is admin
+    if (!req.session || !req.session.userId) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Not authenticated' 
+      });
+    }
+
+    const currentUser = await User.findOne({ _id: parseInt(req.session.userId) });
+    
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Admin access required' 
+      });
+    }
+
+    // Get all users (excluding password field)
+    const users = await User.find({}, { password: 0 }).sort({ _id: 1 });
+
+    res.json({ 
+      success: true, 
+      users: users,
+      total: users.length
+    });
+
+  } catch (error) {
+    console.error('❌ List users error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to list users',
+      message: error.message 
+    });
+  }
+});
+
+// DELETE /api/auth/users/:userId - Delete specific user (ADMIN ONLY)
+router.delete('/users/:userId', async (req, res) => {
+  try {
+    // Check if user is authenticated and is admin
+    if (!req.session || !req.session.userId) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Not authenticated' 
+      });
+    }
+
+    const currentUser = await User.findOne({ _id: parseInt(req.session.userId) });
+    
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Admin access required' 
+      });
+    }
+
+    const userIdToDelete = parseInt(req.params.userId);
+    
+    // Don't allow deleting yourself
+    if (userIdToDelete === currentUser._id) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Cannot delete your own account' 
+      });
+    }
+
+    const userToDelete = await User.findOne({ _id: userIdToDelete });
+    
+    if (!userToDelete) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'User not found' 
+      });
+    }
+
+    // Don't allow deleting other admin accounts
+    if (userToDelete.role === 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Cannot delete admin accounts' 
+      });
+    }
+
+    await User.deleteOne({ _id: userIdToDelete });
+
+    console.log(`✅ Deleted user: ${userToDelete.username} (ID: ${userIdToDelete})`);
+
+    res.json({ 
+      success: true, 
+      message: `Successfully deleted user: ${userToDelete.username}`,
+      deletedUser: {
+        id: userToDelete._id,
+        username: userToDelete.username,
+        email: userToDelete.email
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Delete user error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to delete user',
+      message: error.message 
+    });
+  }
+});
 module.exports = router;
