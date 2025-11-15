@@ -17,7 +17,7 @@ router.post('/google/register', async (req, res) => {
     console.log('🔵 Google registration request received');
     console.log('📦 Request body:', JSON.stringify(req.body, null, 2));
     console.log('🔑 Token exists:', !!req.body.token);
-    console.log('📝 Username:', req.body.username);
+    console.log('👤 Username:', req.body.username);
     
     const { token, username } = req.body;
     
@@ -68,7 +68,7 @@ router.post('/google/register', async (req, res) => {
       });
     }
 
-    // Check if email already exists
+    // Check if email already exists WITH COMPLETE REGISTRATION
     console.log('🔍 Checking for existing user with email:', email);
     let existingUser = await User.findOne({ 
       $or: [
@@ -78,11 +78,20 @@ router.post('/google/register', async (req, res) => {
     });
 
     if (existingUser) {
-      console.error('❌ User already exists:', existingUser.email);
-      return res.status(409).json({ 
-        success: false, 
-        error: 'This Google account is already registered. Please sign in instead.' 
-      });
+      // ✅ FIX: Check if this is a complete registration
+      // If user exists with googleId, they're fully registered
+      if (existingUser.googleId === googleId) {
+        console.error('❌ Google account already registered:', existingUser.email);
+        return res.status(409).json({ 
+          success: false, 
+          error: 'This Google account is already registered. Please sign in instead.' 
+        });
+      }
+      
+      // If email matches but no googleId, it's a local account - allow linking
+      if (!existingUser.googleId && existingUser.email === email.toLowerCase()) {
+        console.log('🔗 Found local account with same email, will allow Google linking after username check');
+      }
     }
 
     // Check if username already exists
@@ -92,18 +101,23 @@ router.post('/google/register', async (req, res) => {
     });
 
     if (userWithUsername) {
-      console.error('❌ Username already taken:', username);
-      return res.status(409).json({ 
-        success: false, 
-        error: 'Username already taken. Please choose another.' 
-      });
+      // If it's the same user trying to link Google account, that's OK
+      if (existingUser && userWithUsername._id === existingUser._id) {
+        console.log('✅ Same user, allowing Google account linking');
+      } else {
+        console.error('❌ Username already taken:', username);
+        return res.status(409).json({ 
+          success: false, 
+          error: 'Username already taken. Please choose another.' 
+        });
+      }
     }
 
     // Get next user ID
     const lastUser = await User.findOne().sort({ _id: -1 });
     const nextId = lastUser ? lastUser._id + 1 : 1;
     
-    console.log('📝 Creating new user with ID:', nextId);
+    console.log('🆔 Creating new user with ID:', nextId);
     
     // Create new user
     const newUser = await User.create({
@@ -499,6 +513,8 @@ router.post('/logout', async (req, res) => {
     });
   }
 });
+
+// DELETE /api/auth/users/delete-all - Delete all non-admin users
 router.delete('/users/delete-all', async (req, res) => {
   try {
     // Check if user is authenticated and is admin
@@ -652,4 +668,52 @@ router.delete('/users/:userId', async (req, res) => {
     });
   }
 });
+
+// 🆕 DELETE /api/auth/users/cleanup-google/:email - Remove stuck Google registration (ADMIN ONLY)
+router.delete('/users/cleanup-google/:email', async (req, res) => {
+  try {
+    // Check if user is authenticated and is admin
+    if (!req.session || !req.session.userId) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Not authenticated' 
+      });
+    }
+
+    const currentUser = await User.findOne({ _id: parseInt(req.session.userId) });
+    
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Admin access required' 
+      });
+    }
+
+    const emailToDelete = req.params.email.toLowerCase();
+    
+    console.log(`🧹 Cleaning up stuck Google registration for: ${emailToDelete}`);
+    
+    // Find and delete user with this email
+    const result = await User.deleteMany({ 
+      email: emailToDelete
+    });
+
+    console.log(`✅ Cleanup complete. Deleted ${result.deletedCount} user(s)`);
+
+    res.json({ 
+      success: true, 
+      message: `Successfully cleaned up ${result.deletedCount} user record(s) for ${emailToDelete}`,
+      deletedCount: result.deletedCount
+    });
+
+  } catch (error) {
+    console.error('❌ Cleanup error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Cleanup failed',
+      message: error.message 
+    });
+  }
+});
+
 module.exports = router;

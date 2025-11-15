@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, Activity, AlertCircle, CheckCircle2, Zap, TrendingUp, Loader2, Database, Shield, Lock, User, LogOut, X, Info, Calendar, RotateCw, Pipette } from 'lucide-react';
+import { Brain, Activity, AlertCircle, CheckCircle2, Zap, TrendingUp, Loader2, Database, Shield, Lock, User, LogOut, X, Info, Calendar, RotateCw, Pipette, Trash2 } from 'lucide-react';
 import ConnectionTest from './ConnectionTest';  // Keep the debug component
 
 // API Configuration
@@ -2276,6 +2276,8 @@ const ConfirmDialog = ({ message, onConfirm, onCancel }) => {
 const UserManagementContent = ({ showNotification, showConfirm }) => {
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [cleanupEmail, setCleanupEmail] = useState('');
+  const [showCleanupForm, setShowCleanupForm] = useState(false);
 
   const loadUsers = async () => {
     setIsLoading(true);
@@ -2373,6 +2375,42 @@ const UserManagementContent = ({ showNotification, showConfirm }) => {
     }
   };
 
+  const cleanupGoogleUser = async () => {
+    if (!cleanupEmail || cleanupEmail.trim().length === 0) {
+      showNotification('Please enter an email address', 'error');
+      return;
+    }
+
+    const confirmed = await showConfirm(
+      `Remove stuck Google registration for: ${cleanupEmail}?`
+    );
+    
+    if (!confirmed) return;
+
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/users/cleanup-google/${encodeURIComponent(cleanupEmail)}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        showNotification(data.message, 'success');
+        setCleanupEmail('');
+        setShowCleanupForm(false);
+        loadUsers();
+      } else {
+        showNotification(data.error || 'Cleanup failed', 'error');
+      }
+    } catch (error) {
+      showNotification('Cleanup failed: ' + error.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadUsers();
   }, []);
@@ -2401,10 +2439,50 @@ const UserManagementContent = ({ showNotification, showConfirm }) => {
             <Trash2 className="h-4 w-4" />
             <span>Delete All Users</span>
           </button>
+          <button
+            onClick={() => setShowCleanupForm(!showCleanupForm)}
+            className="flex items-center space-x-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-all duration-200"
+          >
+            <AlertCircle className="h-4 w-4" />
+            <span>Cleanup Google User</span>
+          </button>
         </div>
       </div>
 
-      <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+      {showCleanupForm && (
+        <div className="mb-4 p-4 bg-yellow-50 border-2 border-yellow-200 rounded-lg">
+          <h4 className="font-semibold text-yellow-900 mb-3 flex items-center space-x-2">
+            <AlertCircle className="h-5 w-5" />
+            <span>Remove Stuck Google Registration</span>
+          </h4>
+          <p className="text-sm text-yellow-800 mb-3">
+            If a Google account is stuck saying "already registered" but can't login, enter the email here to clean it up.
+          </p>
+          <div className="flex space-x-2">
+            <input
+              type="email"
+              value={cleanupEmail}
+              onChange={(e) => setCleanupEmail(e.target.value)}
+              placeholder="Enter Google email address"
+              className="flex-1 px-3 py-2 border border-yellow-300 rounded-lg focus:ring-2 focus:ring-yellow-500"
+              disabled={isLoading}
+            />
+            <button
+              onClick={cleanupGoogleUser}
+              disabled={isLoading || !cleanupEmail}
+              className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-all duration-200 disabled:opacity-50 flex items-center space-x-2"
+            >
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <AlertCircle className="h-4 w-4" />
+              )}
+              <span>Clean Up</span>
+            </button>
+          </div>
+        </div>
+      )}
+<div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
         <div className="flex items-start space-x-2">
           <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-yellow-800">
@@ -2413,6 +2491,7 @@ const UserManagementContent = ({ showNotification, showConfirm }) => {
               <li>Admin accounts cannot be deleted</li>
               <li>You cannot delete your own account</li>
               <li>"Delete All" removes all non-admin users</li>
+              <li>"Cleanup Google User" removes stuck registrations by email</li>
             </ul>
           </div>
         </div>
