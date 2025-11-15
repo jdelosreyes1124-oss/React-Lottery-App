@@ -1673,17 +1673,17 @@ const AuthProvider = ({ children }) => {
   };
 
   const googleLogin = async (tokenId) => {
-    try {
-      const response = await api.googleLogin(tokenId);
-      if (response.success && response.user) {
-        setUser(response.user);
-        return { success: true };
-      }
-      return { success: false, error: response.message || 'Google login failed' };
-    } catch (error) {
-      return { success: false, error: error.message };
+  try {
+    const response = await api.googleLogin(tokenId);
+    if (response.success && response.user) {
+      setUser(response.user);
+      return { success: true };
     }
-  };
+    return { success: false, error: response.message || 'Google login failed' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+};
 
   const logout = async () => {
   try {
