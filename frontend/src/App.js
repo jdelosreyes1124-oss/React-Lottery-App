@@ -72,16 +72,16 @@ const api = {
       return res.json();
     }),
   
-  googleRegister: (tokenId) =>
-    fetch(`${API_BASE_URL}/auth/google/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: tokenId }),
-      credentials: 'include'
-    }).then(res => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
-    }),
+ googleRegister: (tokenId, username) =>
+  fetch(`${API_BASE_URL}/auth/google/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: tokenId, username: username }),
+    credentials: 'include'
+  }).then(res => {
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }),
   
   verifyAuth: () =>
     fetch(`${API_BASE_URL}/auth/verify`, {
@@ -2983,9 +2983,9 @@ const WebScraperPanel = ({ gameType, onClose }) => {
   );
 };
 
-// Sign Up Form Component
+// Sign Up Form Component - FIXED VERSION
 const SignUpForm = ({ onClose, onSwitchToLogin }) => {
-  const { register, googleLogin } = useAuth();
+  const { register } = useAuth();
   const [formData, setFormData] = useState({
     username: '',
     password: '',
@@ -2994,25 +2994,58 @@ const SignUpForm = ({ onClose, onSwitchToLogin }) => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showGoogleUsernamePrompt, setShowGoogleUsernamePrompt] = useState(false);
+  const [googleToken, setGoogleToken] = useState(null);
+  const [googleUsername, setGoogleUsername] = useState('');
 
   const handleGoogleResponse = React.useCallback(async (response) => {
+    // Store the token and show username prompt
+    setGoogleToken(response.credential);
+    setShowGoogleUsernamePrompt(true);
+    setError('');
+  }, []);
+
+  const handleGoogleRegistration = async () => {
+    if (!googleUsername || googleUsername.length < 3) {
+      setError('Username must be at least 3 characters');
+      return;
+    }
+
     setIsLoading(true);
     setError('');
     
     try {
-      // Try to register with Google
-      const result = await api.googleRegister(response.credential);
-      if (result.success) {
+      const response = await fetch(`${API_BASE_URL}/auth/google/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          token: googleToken,
+          username: googleUsername 
+        }),
+        credentials: 'include'
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Registration successful - close the form
         onClose();
+        window.location.reload(); // Refresh to update auth state
       } else {
-        setError(result.error || 'Google sign up failed. Account may already exist.');
+        setError(data.error || 'Google sign-up failed');
+        setShowGoogleUsernamePrompt(false);
+        setGoogleToken(null);
+        setGoogleUsername('');
       }
     } catch (err) {
-      setError('Google sign up failed. Please try again or use username/password.');
+      setError('Google sign-up failed. Please try again.');
+      setShowGoogleUsernamePrompt(false);
+      setGoogleToken(null);
+      setGoogleUsername('');
     } finally {
       setIsLoading(false);
     }
-  }, [onClose]);
+  };
 
   useEffect(() => {
     // Load Google Sign-In script for registration
@@ -3095,6 +3128,86 @@ const SignUpForm = ({ onClose, onSwitchToLogin }) => {
     }
   };
 
+  // Google Username Prompt Modal
+  if (showGoogleUsernamePrompt) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full">
+          <div className="bg-white rounded-2xl shadow-2xl p-8">
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full mb-4">
+                <User className="h-8 w-8 text-white" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-800 mb-2">Choose Your Username</h2>
+              <p className="text-gray-600">You're signing up with Google</p>
+            </div>
+
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-3">
+                <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Username (required)
+                </label>
+                <input
+                  type="text"
+                  value={googleUsername}
+                  onChange={(e) => setGoogleUsername(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleGoogleRegistration()}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  placeholder="Choose a username"
+                  required
+                  disabled={isLoading}
+                  minLength={3}
+                  autoFocus
+                />
+                <p className="text-xs text-gray-500 mt-1">Must be at least 3 characters</p>
+              </div>
+
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => {
+                    setShowGoogleUsernamePrompt(false);
+                    setGoogleToken(null);
+                    setGoogleUsername('');
+                    setError('');
+                  }}
+                  disabled={isLoading}
+                  className="flex-1 py-3 px-4 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-all duration-200 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleGoogleRegistration}
+                  disabled={isLoading || !googleUsername || googleUsername.length < 3}
+                  className="flex-1 py-3 px-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg font-semibold hover:shadow-lg hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      <span>Creating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-5 w-5" />
+                      <span>Complete Sign Up</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Main Sign-Up Form
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
       <div className="max-w-md w-full">
@@ -3119,6 +3232,9 @@ const SignUpForm = ({ onClose, onSwitchToLogin }) => {
           {GOOGLE_CLIENT_ID && (
             <div className="mb-6">
               <div id="googleSignUpButton" className={isLoading ? 'opacity-50 pointer-events-none' : ''} />
+              <p className="text-xs text-gray-500 mt-2 text-center">
+                You'll choose a username after signing in with Google
+              </p>
             </div>
           )}
 
@@ -3246,7 +3362,6 @@ const SignUpForm = ({ onClose, onSwitchToLogin }) => {
     </div>
   );
 };
-
 // Google Sign-In Button Component
 const GoogleSignInButton = ({ onSuccess, onError, disabled }) => {
   const handleCredentialResponse = React.useCallback(async (response) => {
