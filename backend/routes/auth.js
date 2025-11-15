@@ -128,7 +128,7 @@ router.post('/google/register', async (req, res) => {
   }
 });
 
-// POST /api/auth/google - Google OAuth Login
+// POST /api/auth/google - Google OAuth Login (FIXED)
 router.post('/google', async (req, res) => {
   try {
     const { token } = req.body;
@@ -139,7 +139,7 @@ router.post('/google', async (req, res) => {
       });
     }
 
-    console.log('🔐 Google OAuth login attempt...');
+    console.log('🔍 Google OAuth login attempt...');
     
     // Verify Google token
     const ticket = await googleClient.verifyIdToken({
@@ -167,66 +167,32 @@ router.post('/google', async (req, res) => {
       ] 
     });
 
+    // ❌ CRITICAL FIX: Don't create users during login - return error instead
     if (!user) {
-      // Create new user via Google OAuth
-      console.log('📝 Creating new user via Google OAuth...');
-      
-      // Generate unique username
-      const baseUsername = email.split('@')[0].toLowerCase() + '_google';
-      let finalUsername = baseUsername;
-      
-      const existingUser = await User.findOne({ username: finalUsername });
-      if (existingUser) {
-        finalUsername = baseUsername + '_' + Math.random().toString(36).substring(7);
-      }
-      
-      // Get next user ID
-      const lastUser = await User.findOne().sort({ _id: -1 });
-      const nextId = lastUser ? lastUser._id + 1 : 1;
-      
-      // Create new user object with all required fields for Google OAuth
-      const newUserData = {
-        _id: nextId,
-        username: finalUsername,
-        email: email.toLowerCase(),
-        name: name || finalUsername,
-        googleId: googleId,
-        profilePicture: picture,
-        authProvider: 'google',
-        isActive: true,
-        lastLogin: new Date()
-      };
-      
-      console.log('📦 New user data prepared:', { 
-        username: newUserData.username, 
-        email: newUserData.email,
-        authProvider: newUserData.authProvider,
-        hasGoogleId: !!newUserData.googleId 
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No account found with this Google account. Please register first.',
+        error: 'USER_NOT_FOUND'
       });
-      
-      // Create the user
-      user = await User.create(newUserData);
-      console.log(`✅ New user created via Google OAuth: ${email} (ID: ${nextId})`);
-      
-    } else {
-      // Update existing user
-      console.log('🔄 Updating existing user with Google OAuth data...');
-      
-      if (!user.googleId) {
-        console.log('🔗 Linking Google account to existing local account...');
-      }
-      
-      // Update user fields
-      user.googleId = googleId;
-      user.profilePicture = picture;
-      user.name = name || user.name;
-      user.authProvider = 'google';
-      user.lastLogin = new Date();
-      
-      // Save with validateModifiedOnly to prevent password validation
-      await user.save({ validateModifiedOnly: true });
-      console.log(`✅ Existing user logged in via Google: ${email}`);
     }
+
+    // ✅ User exists - update their info and log them in
+    console.log('🔄 Updating existing user with Google OAuth data...');
+    
+    if (!user.googleId) {
+      console.log('🔗 Linking Google account to existing local account...');
+    }
+    
+    // Update user fields
+    user.googleId = googleId;
+    user.profilePicture = picture;
+    user.name = name || user.name;
+    user.authProvider = 'google';
+    user.lastLogin = new Date();
+    
+    // Save with validateModifiedOnly to prevent password validation
+    await user.save({ validateModifiedOnly: true });
+    console.log(`✅ Existing user logged in via Google: ${email}`);
 
     // Create session
     req.session.userId = user._id.toString();
