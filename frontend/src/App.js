@@ -183,14 +183,23 @@ addHistoricalResult: (gameType, result) =>
     return data;
   }),
 
- syncBackendExcel: (gameType) =>
+syncBackendExcel: (gameType) =>
   fetch(`${API_BASE_URL}/admin/historical-results/${gameType}/sync`, {
     method: 'POST',
     credentials: 'include'
   }).then(async res => {
+    console.log('[API] Sync response status:', res.status);
+    
     if (res.status === 403) throw new Error('Admin access required');
+    if (res.status === 503) throw new Error('MongoDB not connected');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    
     const data = await res.json();
+    console.log('[API] Sync response data:', data);
     return data;
+  }).catch(err => {
+    console.error('[API] Sync error:', err);
+    throw err;
   }),
 
   scraperPreview: (gameType, maxResults = 30) =>
@@ -2934,45 +2943,37 @@ const AdminPanel = ({ onClose }) => {
     }
   };
 
-  const handleSync = async () => {
-    const confirmed = await showConfirm('Sync backend Excel data? This will reload all data from the Excel file.');
-    if (!confirmed) return;
+ const handleSync = async () => {
+  const confirmed = await showConfirm('Sync MongoDB with Excel? This will ensure MongoDB matches the Excel file data.');
+  if (!confirmed) return;
 
-    setIsLoading(true);
-    try {
-      const response = await api.syncBackendExcel(selectedGameType);
+  setIsLoading(true);
+  try {
+    console.log('[SYNC] Starting sync for:', selectedGameType);
+    const response = await api.syncBackendExcel(selectedGameType);
+    
+    console.log('[SYNC] Response:', response);
+    
+    if (response.success) {
+      // Show sync statistics
+      const stats = response.stats || {};
+      const message = `Sync completed! Added: ${stats.added || 0}, Deleted: ${stats.deleted || 0}, Kept: ${stats.kept || 0}`;
+      showNotification(message, 'success');
       
-      if (response.success && response.results) {
-        setHistoricalResults(prev => ({
-          ...prev,
-          [selectedGameType]: {
-            results: response.results
-          }
-        }));
-        
-        if (response.total !== undefined) {
-          setPagination({
-            page: 1,
-            limit: 50,
-            total: response.total,
-            totalPages: Math.ceil(response.total / 50),
-            hasMore: false
-          });
-        }
-        
-        showNotification(
-          `Sync completed! ${response.data?.length || response.results?.length || 0} results loaded`,
-          'success'
-        );
-      } else {
-        showNotification('Sync failed: ' + (response.error || 'Unknown error'), 'error');
-      }
-    } catch (error) {
-      showNotification('Sync failed: ' + error.message, 'error');
-    } finally {
-      setIsLoading(false);
+      // Reload the data after sync
+      await loadHistoricalResults(selectedGameType, 1);
+    } else {
+      const errorMsg = response.error || response.message || 'Unknown error';
+      console.error('[SYNC] Failed:', errorMsg);
+      showNotification('Sync failed: ' + errorMsg, 'error');
     }
-  };
+  } catch (error) {
+    console.error('[SYNC] Exception:', error);
+    showNotification('Sync failed: ' + error.message, 'error');
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   const numberCount = selectedGameType === '539' ? 5 : 6;
 
