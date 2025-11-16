@@ -3860,7 +3860,10 @@ const GoogleLoginScreen = () => {
     return (
       <SignUpForm 
         onClose={() => setShowSignUp(false)}
-        onSwitchToLogin={() => setShowSignUp(false)}
+        onSwitchToLogin={() => {
+  setShowSignUp(false);
+  setError(''); // Clear error when switching back to login
+}}
       />
     );
   }
@@ -3895,7 +3898,10 @@ const GoogleLoginScreen = () => {
                         ⚠️ This Google account hasn't been registered yet!
                       </p>
                       <button
-                        onClick={() => setShowSignUp(true)}
+                        onClick={() => {
+  setShowSignUp(true);
+  setError(''); // Clear error when switching to sign up
+}}
                         className="w-full mt-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg font-semibold hover:shadow-lg hover:scale-105 transition-all duration-200 flex items-center justify-center space-x-2"
                       >
                         <CheckCircle2 className="h-4 w-4" />
