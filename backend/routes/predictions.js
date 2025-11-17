@@ -18,7 +18,7 @@ const GAME_CODE_MAP = {
 // Helper Function: Call Magayo API
 async function getMagayoPrediction(gameType, period, extended = false) {
   try {
-    console.log('\n🔄 [MAGAYO] Attempting to get prediction from Magayo API...');
+    console.log('\n📄 [MAGAYO] Attempting to get prediction from Magayo API...');
     console.log(`📊 [MAGAYO] Game Type: ${gameType}, Period: ${period}, Extended: ${extended}`);
     
     const magayoGameCode = GAME_CODE_MAP[gameType];
@@ -79,8 +79,18 @@ async function getMagayoPrediction(gameType, period, extended = false) {
         }
       };
 
+      // CRITICAL FIX: For games with bonus numbers, ensure bonus is always set
       if (bonus !== null) {
         prediction.bonus = bonus;
+      } else if (gameType === 'mark6' || gameType === 'lotto649') {
+        // If Magayo didn't provide bonus but game needs one, generate it
+        const maxNum = 49;
+        let generatedBonus;
+        do {
+          generatedBonus = Math.floor(Math.random() * maxNum) + 1;
+        } while (numbers.includes(generatedBonus));
+        prediction.bonus = generatedBonus;
+        console.log(`🎁 [MAGAYO] Generated bonus (not in API response): ${generatedBonus}`);
       }
 
       console.log(`✅ [MAGAYO] SUCCESS - Prediction ready for use\n`);
