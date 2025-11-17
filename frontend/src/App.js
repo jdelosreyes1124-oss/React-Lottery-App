@@ -1738,6 +1738,9 @@ const useAuth = () => {
 const AutomationResults = ({ results, onClear }) => {
   if (!results) return null;
 
+  // Determine if this game type has bonus numbers
+  const hasBonus = results.bonus !== undefined && results.bonus !== null;
+
   return (
     <div className="mt-4 p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg border-2 border-blue-200">
       <div className="flex items-center justify-between mb-3">
@@ -1766,7 +1769,7 @@ const AutomationResults = ({ results, onClear }) => {
             />
           ))}
         </div>
-        {results.bonus && (
+        {hasBonus && (
           <div className="mt-4">
             <p className="text-sm text-blue-700 mb-2 font-medium">Bonus Number:</p>
             <div className="flex justify-center">
@@ -4582,6 +4585,7 @@ const handleRunAutomation = async (gameType) => {
         </div>
       </div>
 
+      {/* Show bonus for both Mark 6 AND Lotto 649 */}
       {predictions[gameType].bonus && (gameType === 'mark6' || gameType === 'lotto649') && (
         <div className="mb-4">
           <p className="text-sm font-semibold text-gray-700 mb-2">Bonus Number</p>
@@ -4607,7 +4611,7 @@ const handleRunAutomation = async (gameType) => {
       </div>
     </div>
   </div>
-)}
+)}                                                          
                 </div>
               )}
             </div>
