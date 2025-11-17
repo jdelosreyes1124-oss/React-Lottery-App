@@ -4565,49 +4565,49 @@ const handleRunAutomation = async (gameType) => {
                   )}
 
                   {predictions[gameType] && (
-                    <div className="space-y-4">
-                      <div className="text-center">
-                        <h4 className="font-semibold text-gray-700 mb-3">Predicted Numbers</h4>
-                        
-                        <div className="mb-4">
-                          <div className="flex flex-wrap justify-center gap-2">
-                            {predictions[gameType].numbers?.map((number, index) => (
-                              <NumberBall 
-                                key={`${gameType}-${number}-${index}`} 
-                                number={number} 
-                                delay={index * 100}
-                                size="lg"
-                              />
-                            ))}
-                          </div>
-                        </div>
+  <div className="space-y-4">
+    <div className="text-center">
+      <h4 className="font-semibold text-gray-700 mb-3">Predicted Numbers</h4>
+      
+      <div className="mb-4">
+        <div className="flex flex-wrap justify-center gap-2">
+          {predictions[gameType].numbers?.map((number, index) => (
+            <NumberBall 
+              key={`${gameType}-${number}-${index}`} 
+              number={number} 
+              delay={index * 100}
+              size="lg"
+            />
+          ))}
+        </div>
+      </div>
 
-                        {predictions[gameType].bonus && (
-                          <div className="mb-4">
-                            <p className="text-sm text-gray-600 mb-2">Bonus</p>
-                            <div className="flex justify-center">
-                              <NumberBall 
-                                number={predictions[gameType].bonus} 
-                                isBonus={true}
-                                size="xl"
-                              />
-                            </div>
-                          </div>
-                        )}
+      {predictions[gameType].bonus && (gameType === 'mark6' || gameType === 'lotto649') && (
+        <div className="mb-4">
+          <p className="text-sm font-semibold text-gray-700 mb-2">Bonus Number</p>
+          <div className="flex justify-center">
+            <NumberBall 
+              number={predictions[gameType].bonus} 
+              isBonus={true}
+              size="xl"
+            />
+          </div>
+        </div>
+      )}
 
-                        <div className="p-3 bg-gray-50 rounded-lg">
-                          <div className="text-xs text-gray-600">
-                            <div className="flex justify-between">
-                              <span>Based on:</span>
-                              <span className="font-semibold">
-                                {FREQUENCY_OPTIONS.find(opt => opt.value === selectedFrequencyDays[gameType])?.label}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+      <div className="p-3 bg-gray-50 rounded-lg">
+        <div className="text-xs text-gray-600">
+          <div className="flex justify-between">
+            <span>Based on:</span>
+            <span className="font-semibold">
+              {FREQUENCY_OPTIONS.find(opt => opt.value === selectedFrequencyDays[gameType])?.label}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
                 </div>
               )}
             </div>
