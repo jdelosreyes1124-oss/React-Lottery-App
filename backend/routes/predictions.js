@@ -119,11 +119,11 @@ async function getLocalPrediction(gameType, period, extended = false, frequency)
   console.log('\n🔄 [LOCAL] Using local algorithm for prediction...');
   console.log(`📊 [LOCAL] Game Type: ${gameType}, Period: ${period}, Extended: ${extended}`);
   
-  const gameConfig = {
-    '539': { numbers: extended ? 8 : 8, max: 39, hasBonus: false },
-    'mark6': { numbers: 6, max: 49, hasBonus: true },
-    'lotto649': { numbers: 6, max: 49, hasBonus: true }
-  };
+const gameConfig = {
+  '539': { numbers: 8, max: 39, hasBonus: false },  // Always 8 numbers
+  'mark6': { numbers: 6, max: 49, hasBonus: true },
+  'lotto649': { numbers: 6, max: 49, hasBonus: true }
+};
   
   const config = gameConfig[gameType];
   const numbers = [];
