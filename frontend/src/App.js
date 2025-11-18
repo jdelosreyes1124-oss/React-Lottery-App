@@ -4343,50 +4343,49 @@ const handleRunAutomation = async (gameType) => {
 
   try {
     const multiplier = selectedMultipliers[gameType] || 1;
-    // Change this line:
     const result = await api.automation(gameType, '1month', multiplier);
       
-     if (result.success) {
+    if (result.success) {
+      // Determine how many top numbers to show based on game type
+      const desiredCount = gameType === '539' ? 5 : 8;
+      
+      // Get the top numbers based on frequency
       let finalTopNumbers = [...(result.topNumbers || [])];
-      const maxNumber = gameType === '539' ? 39 : 49;
-      const desiredCount = 8;
-
-      // Pad the array with unique random numbers if it's shorter than 8
-      while (finalTopNumbers.length < desiredCount) {
-        const randomNum = Math.floor(Math.random() * maxNumber) + 1;
-        if (!finalTopNumbers.includes(randomNum)) {
-          finalTopNumbers.push(randomNum);
-        }
-      }
-
-      // Slice to ensure it's not more than 8 and then sort
-      finalTopNumbers = finalTopNumbers.slice(0, desiredCount).sort((a, b) => a - b);
-      // --- END OF MODIFICATION ---
-      // highlight-end
-  setAutomationResults(prev => ({ 
-    ...prev, 
-    [gameType]: {
-      topNumbers: result.topNumbers,
-      iterations: result.totalIterations || result.iterations,
-      allResults: [],
-      frequencyData: result.frequencyData,
-      metadata: result.metadata
-    }
-  }));
-
+      
+      // If we have frequency data, sort by frequency and take top N
+      if (result.frequencyData && result.frequencyData.length > 0) {
+        finalTopNumbers = result.frequencyData
+          .slice(0, desiredCount)
+          .map(item => item.number)
+          .sort((a, b) => a - b);
       } else {
-        const mockResults = generateMockAutomation(gameType, multiplier);
-        setAutomationResults(prev => ({ ...prev, [gameType]: mockResults }));
+        // Fallback: just take the first N numbers and sort
+        finalTopNumbers = finalTopNumbers.slice(0, desiredCount).sort((a, b) => a - b);
       }
-    } catch
-    (err) {
-      console.error('Automation failed:', err);
-      const mockResults = generateMockAutomation(gameType, selectedMultipliers[gameType]);
+
+      setAutomationResults(prev => ({ 
+        ...prev, 
+        [gameType]: {
+          topNumbers: finalTopNumbers,
+          iterations: result.totalIterations || result.iterations,
+          allResults: [],
+          frequencyData: result.frequencyData,
+          metadata: result.metadata
+        }
+      }));
+
+    } else {
+      const mockResults = generateMockAutomation(gameType, multiplier);
       setAutomationResults(prev => ({ ...prev, [gameType]: mockResults }));
-    } finally {
-      setIsAutomationRunning(false);
     }
-  };
+  } catch (err) {
+    console.error('Automation failed:', err);
+    const mockResults = generateMockAutomation(gameType, selectedMultipliers[gameType]);
+    setAutomationResults(prev => ({ ...prev, [gameType]: mockResults }));
+  } finally {
+    setIsAutomationRunning(false);
+  }
+};
 
   const handleMultiplierChange = (gameType, index) => {
     setSelectedMultipliers(prev => ({ ...prev, [gameType]: MULTIPLIER_OPTIONS[index].value }));
