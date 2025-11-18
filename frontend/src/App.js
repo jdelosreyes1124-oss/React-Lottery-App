@@ -4347,7 +4347,7 @@ const handleRunAutomation = async (gameType) => {
       
     if (result.success) {
       // Determine how many top numbers to show based on game type
-      const desiredCount = gameType === '539' ? 5 : 8;
+      const desiredCount = 8;
       
       // Get the top numbers based on frequency
       let finalTopNumbers = [...(result.topNumbers || [])];
