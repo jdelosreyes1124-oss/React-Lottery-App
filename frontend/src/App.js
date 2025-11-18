@@ -4572,15 +4572,6 @@ const handleRunAutomation = async (gameType) => {
     <div className="text-center">
       <h4 className="font-semibold text-gray-700 mb-3">Predicted Numbers</h4>
       
-      {/* DEBUG BOX - Always visible for testing */}
-      <div className="mb-4 p-3 bg-purple-50 border-2 border-purple-300 rounded-lg text-xs text-left">
-        <p className="font-bold text-purple-900 mb-2">🔍 DEBUG INFO:</p>
-        <p className="text-purple-800">Game Type: <span className="font-mono font-bold">{gameType}</span></p>
-        <p className="text-purple-800">Has Bonus: <span className="font-mono font-bold">{predictions[gameType].bonus ? 'YES ✅' : 'NO ❌'}</span></p>
-        <p className="text-purple-800">Bonus Value: <span className="font-mono font-bold">{predictions[gameType].bonus || 'undefined'}</span></p>
-        <p className="text-purple-800 break-all">Full Data: <span className="font-mono text-xs">{JSON.stringify(predictions[gameType], null, 2)}</span></p>
-      </div>
-      
       <div className="mb-4">
         <div className="flex flex-wrap justify-center gap-2">
           {predictions[gameType].numbers?.map((number, index) => (
