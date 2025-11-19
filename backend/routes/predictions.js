@@ -126,31 +126,22 @@ const gameConfig = {
 };
   
   const config = gameConfig[gameType];
-  const numbers = [];
-  
-  // Create a pool of ALL numbers with weights
-  const allNumbers = [];
-  for (let i = 1; i <= config.max; i++) {
-    // Find frequency for this number
-    const freqData = frequency.mainNumbers.find(f => f.number === i);
-    const weight = freqData ? freqData.count : 1; // Use count if available, else 1
-    allNumbers.push({ number: i, weight });
-  }
-  
-  // Sort by weight for weighted selection
-  allNumbers.sort((a, b) => b.weight - a.weight);
   
   console.log(`📈 [LOCAL] Loaded frequency data from ${frequency.totalDraws} draws`);
   
-  // Select numbers with weighted probability
-  while (numbers.length < config.numbers) {
-    // Use power function for weighted selection (higher weight = higher chance)
-    const weightedIndex = Math.floor(Math.pow(Math.random(), 2) * allNumbers.length);
-    const selected = allNumbers[weightedIndex];
-    
-    if (!numbers.includes(selected.number)) {
-      numbers.push(selected.number);
-    }
+  // SIMPLE & BULLETPROOF: Generate exactly config.numbers count
+  const availableNumbers = Array.from({length: config.max}, (_, i) => i + 1);
+  
+  // Fisher-Yates shuffle
+  for (let i = availableNumbers.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [availableNumbers[i], availableNumbers[j]] = [availableNumbers[j], availableNumbers[i]];
+  }
+  
+  // Take first config.numbers
+  const numbers = [];
+  for (let i = 0; i < config.numbers; i++) {
+    numbers.push(availableNumbers[i]);
   }
   
   numbers.sort((a, b) => a - b);
@@ -792,23 +783,41 @@ router.post('/:gameType/automation', async (req, res) => {
     while (combinations.size < iterations && attempts < maxAttempts) {
       attempts++;
       
-      // SIMPLE & BULLETPROOF: Generate exactly config.numbersPerDraw numbers
       const numbers = [];
-      const availableNumbers = Array.from({length: config.maxNumber}, (_, i) => i + 1);
+      const weightedPool = createWeightedPool();
+      const usedIndices = new Set();
       
-      // Fisher-Yates shuffle - guarantees random selection
-      for (let i = availableNumbers.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [availableNumbers[i], availableNumbers[j]] = [availableNumbers[j], availableNumbers[i]];
+      // Select numbers from the weighted pool
+      while (numbers.length < config.numbersPerDraw) {
+        const poolIndex = Math.floor(Math.pow(Math.random(), 1.5) * weightedPool.length);
+        
+        if (!usedIndices.has(poolIndex)) {
+          usedIndices.add(poolIndex);
+          const selectedNumber = weightedPool[poolIndex];
+          
+          if (!numbers.includes(selectedNumber)) {
+            numbers.push(selectedNumber);
+          }
+        }
+        
+        // Fallback if we're stuck
+        if (usedIndices.size > weightedPool.length * 0.8) {
+          const randomNum = Math.floor(Math.random() * config.maxNumber) + 1;
+          if (!numbers.includes(randomNum)) {
+            numbers.push(randomNum);
+          }
+        }
       }
       
-      // Take first config.numbersPerDraw numbers - ALWAYS exactly the right count!
-      for (let i = 0; i < config.numbersPerDraw; i++) {
-        numbers.push(availableNumbers[i]);
+      // Emergency fallback: ensure exactly config.numbersPerDraw numbers
+      let safetyCounter = 0;
+      while (numbers.length < config.numbersPerDraw && safetyCounter < 1000) {
+        safetyCounter++;
+        const randomNum = Math.floor(Math.random() * config.maxNumber) + 1;
+        if (!numbers.includes(randomNum)) {
+          numbers.push(randomNum);
+        }
       }
-      
-      // Sort them
-      numbers.sort((a, b) => a - b);
       
       // Sort and create combination string
       numbers.sort((a, b) => a - b);
