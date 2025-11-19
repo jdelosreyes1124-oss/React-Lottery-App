@@ -54,7 +54,7 @@ const corsOptions = {
     // Production origins
     const allowedOrigins = [
       'https://react-lottery-app-qber.vercel.app',
-      'https://lottery-backend-tdqv.onrender.com'
+      'https://lottery-backend-tdqv.onrender.com'  // Correct backend URL from Render logs
     ];
     
     if (!origin) {
@@ -62,7 +62,7 @@ const corsOptions = {
       return callback(null, true);
     }
     if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
-      callback(null, origin);  // Return the origin instead of true
+      callback(null, true);  // ✅ FIXED: Pass true to allow the origin
     } else {
       console.warn(`⚠️ Blocked request from unauthorized origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
