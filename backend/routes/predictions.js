@@ -890,7 +890,7 @@ router.post('/:gameType/automation', async (req, res) => {
   }
 });
 
-// GET /api/predictions/history
+// GET /api/predictions/history 
 router.get('/history', async (req, res) => {
   try {
     if (!req.session?.user) {
