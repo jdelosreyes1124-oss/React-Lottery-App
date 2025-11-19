@@ -792,41 +792,23 @@ router.post('/:gameType/automation', async (req, res) => {
     while (combinations.size < iterations && attempts < maxAttempts) {
       attempts++;
       
+      // SIMPLE & BULLETPROOF: Generate exactly config.numbersPerDraw numbers
       const numbers = [];
-      const weightedPool = createWeightedPool();
-      const usedIndices = new Set();
+      const availableNumbers = Array.from({length: config.maxNumber}, (_, i) => i + 1);
       
-      // Select numbers from the weighted pool
-      while (numbers.length < config.numbersPerDraw) {
-        const poolIndex = Math.floor(Math.pow(Math.random(), 1.5) * weightedPool.length);
-        
-        if (!usedIndices.has(poolIndex)) {
-          usedIndices.add(poolIndex);
-          const selectedNumber = weightedPool[poolIndex];
-          
-          if (!numbers.includes(selectedNumber)) {
-            numbers.push(selectedNumber);
-          }
-        }
-        
-        // Fallback if we're stuck
-        if (usedIndices.size > weightedPool.length * 0.8) {
-          const randomNum = Math.floor(Math.random() * config.maxNumber) + 1;
-          if (!numbers.includes(randomNum)) {
-            numbers.push(randomNum);
-          }
-        }
+      // Fisher-Yates shuffle - guarantees random selection
+      for (let i = availableNumbers.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [availableNumbers[i], availableNumbers[j]] = [availableNumbers[j], availableNumbers[i]];
       }
       
-      // Emergency fallback: ensure exactly config.numbersPerDraw numbers
-      let safetyCounter = 0;
-      while (numbers.length < config.numbersPerDraw && safetyCounter < 1000) {
-        safetyCounter++;
-        const randomNum = Math.floor(Math.random() * config.maxNumber) + 1;
-        if (!numbers.includes(randomNum)) {
-          numbers.push(randomNum);
-        }
+      // Take first config.numbersPerDraw numbers - ALWAYS exactly the right count!
+      for (let i = 0; i < config.numbersPerDraw; i++) {
+        numbers.push(availableNumbers[i]);
       }
+      
+      // Sort them
+      numbers.sort((a, b) => a - b);
       
       // Sort and create combination string
       numbers.sort((a, b) => a - b);
