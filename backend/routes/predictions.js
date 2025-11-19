@@ -818,6 +818,16 @@ router.post('/:gameType/automation', async (req, res) => {
         }
       }
       
+      // Emergency fallback: ensure exactly config.numbersPerDraw numbers
+      let safetyCounter = 0;
+      while (numbers.length < config.numbersPerDraw && safetyCounter < 1000) {
+        safetyCounter++;
+        const randomNum = Math.floor(Math.random() * config.maxNumber) + 1;
+        if (!numbers.includes(randomNum)) {
+          numbers.push(randomNum);
+        }
+      }
+      
       // Sort and create combination string
       numbers.sort((a, b) => a - b);
       const combinationKey = numbers.join(',');
