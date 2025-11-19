@@ -168,7 +168,7 @@ async function syncMongoDBWithExcel() {
     const excelDates = excelData.map(record => formatDateString(record.drawDate));
     
     // Get all MongoDB records
-    const mongoRecords = await collection.find({ gameType: '539' }).toArray();
+    const mongoRecords = await collection.find({ gameType: req.params.gameType }).toArray();
     
     let deleted = 0;
     let kept = 0;
@@ -303,11 +303,21 @@ async function syncRecordToMongoDB(record) {
 }
 
 // GET /api/admin/historical-results/539
-router.get('/historical-results/539', async (req, res) => {
+router.get('/historical-results/:gameType', async (req, res) => {
+    const { gameType } = req.params;
+    
+    // Validate gameType
+    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid game type. Must be 539, mark6, or lotto649'
+      });
+    }
+    
   try {
     console.log('[GET] Loading results from MongoDB...');
     
-    const results = await LotteryResult.find({ gameType: '539' })
+    const results = await LotteryResult.find({ gameType: req.params.gameType })
       .sort({ drawDate: -1 })
       .lean();
       
@@ -343,7 +353,17 @@ router.get('/historical-results/539', async (req, res) => {
 });
 
 // POST /api/admin/historical-results/539/add
-router.post('/historical-results/539/add', async (req, res) => {
+router.post('/historical-results/:gameType/add', async (req, res) => {
+    const { gameType } = req.params;
+    
+    // Validate gameType
+    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid game type. Must be 539, mark6, or lotto649'
+      });
+    }
+    
   console.log('[POST] Add request received');
   console.log('[INFO] Request body:', JSON.stringify(req.body, null, 2));
   
@@ -451,7 +471,7 @@ router.post('/historical-results/539/add', async (req, res) => {
     }
     
     // Get updated results
-    const allResults = await LotteryResult.find({ gameType: '539' })
+    const allResults = await LotteryResult.find({ gameType: req.params.gameType })
       .sort({ drawDate: -1 })
       .lean();
 
@@ -485,7 +505,17 @@ router.post('/historical-results/539/add', async (req, res) => {
 });
 
 // DELETE /api/admin/historical-results/539/:id
-router.delete('/historical-results/539/:id', async (req, res) => {
+router.delete('/historical-results/:gameType/:id', async (req, res) => {
+    const { gameType } = req.params;
+    
+    // Validate gameType
+    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid game type. Must be 539, mark6, or lotto649'
+      });
+    }
+    
   try {
     const { id } = req.params;
     console.log(`[DELETE] Delete request for ID: ${id}`);
@@ -498,7 +528,7 @@ router.delete('/historical-results/539/:id', async (req, res) => {
       deletedResult = await LotteryResult.findByIdAndDelete(id);
     } else {
       // Index-based deletion
-      const allResults = await LotteryResult.find({ gameType: '539' })
+      const allResults = await LotteryResult.find({ gameType: req.params.gameType })
         .sort({ drawDate: -1 });
       
       const index = parseInt(id);
@@ -520,7 +550,7 @@ router.delete('/historical-results/539/:id', async (req, res) => {
     }
 
     // Get updated results after deletion
-    const updatedResults = await LotteryResult.find({ gameType: '539' })
+    const updatedResults = await LotteryResult.find({ gameType: req.params.gameType })
       .sort({ drawDate: -1 })
       .lean();
 
@@ -554,7 +584,17 @@ router.delete('/historical-results/539/:id', async (req, res) => {
 });
 
 // POST /api/admin/historical-results/539/sync - Manual sync from Excel to MongoDB
-router.post('/historical-results/539/sync', async (req, res) => {
+router.post('/historical-results/:gameType/sync', async (req, res) => {
+    const { gameType } = req.params;
+    
+    // Validate gameType
+    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid game type. Must be 539, mark6, or lotto649'
+      });
+    }
+    
   try {
     console.log('[SYNC] Manual sync requested...');
     
@@ -587,7 +627,17 @@ router.post('/historical-results/539/sync', async (req, res) => {
 });
 
 // POST /api/admin/historical-results/539/force-sync - Force complete sync
-router.post('/historical-results/539/force-sync', async (req, res) => {
+router.post('/historical-results/:gameType/force-sync', async (req, res) => {
+    const { gameType } = req.params;
+    
+    // Validate gameType
+    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid game type. Must be 539, mark6, or lotto649'
+      });
+    }
+    
   try {
     console.log('[FORCE-SYNC] Starting complete sync...');
     
@@ -660,7 +710,17 @@ router.post('/historical-results/539/force-sync', async (req, res) => {
 });
 
 // GET /api/admin/historical-results/539/status - Check sync status
-router.get('/historical-results/539/status', async (req, res) => {
+router.get('/historical-results/:gameType/status', async (req, res) => {
+    const { gameType } = req.params;
+    
+    // Validate gameType
+    if (!['539', 'mark6', 'lotto649'].includes(gameType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid game type. Must be 539, mark6, or lotto649'
+      });
+    }
+    
   try {
     let mongoCount = 0;
     let excelCount = 0;
