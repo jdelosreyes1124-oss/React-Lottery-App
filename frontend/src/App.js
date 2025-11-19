@@ -3,7 +3,7 @@ import { Brain, Activity, AlertCircle, CheckCircle2, Zap, TrendingUp, Loader2, D
 import ConnectionTest from './ConnectionTest';  // Keep the debug component
 
 // API Configuration
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://react-lottery-app.onrender.com/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://lottery-backend-tdqv.onrender.com';
 console.log('✅ API_BASE_URL:', API_BASE_URL);
 
 // Google OAuth Configuration
