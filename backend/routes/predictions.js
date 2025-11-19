@@ -561,17 +561,13 @@ router.get('/public/results/:gameType', async (req, res) => {
       });
     }
     
-    const modelMap = {
-      '539': db.LotteryResult539,
-      'mark6': db.LotteryResultMark6,
-      'lotto649': db.LotteryResultLotto649
-    };
-    
-    const Model = modelMap[gameType];
-    const results = await Model.find()
-      .sort({ drawDate: -1 })
-      .limit(parseInt(limit))
-      .select('drawDate numbers bonus');
+    // NEW (Works):
+// KEEP THIS:
+const LotteryResult = require('../models_mongoose/LotteryResult');
+const results = await LotteryResult.find({ gameType: gameType })
+  .sort({ drawDate: -1 })
+  .limit(parseInt(limit))
+  .select('drawDate numbers bonus');
     
     res.json({
       success: true,
