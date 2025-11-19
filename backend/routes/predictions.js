@@ -733,7 +733,7 @@ router.post('/:gameType/automation', async (req, res) => {
     
     // Game configuration
     const gameConfig = {
-      '539': { numbersPerDraw: 5, maxNumber: 39, hasBonus: false },
+      '539': { numbersPerDraw: 8, maxNumber: 39, hasBonus: false },  // Changed from 5 to 8
       'mark6': { numbersPerDraw: 6, maxNumber: 49, hasBonus: true },
       'lotto649': { numbersPerDraw: 6, maxNumber: 49, hasBonus: true }
     };
