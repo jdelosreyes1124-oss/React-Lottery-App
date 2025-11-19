@@ -848,9 +848,9 @@ router.post('/:gameType/automation', async (req, res) => {
       .sort((a, b) => b.frequency - a.frequency);
     
     // Get top numbers
-    const topNumbers = frequencyData.slice(0, 10).map(item => item.number);
+    const topNumbers = frequencyData.slice(0, config.numbersPerDraw).map(item => item.number);
     
-    console.log(`🔢 Top 10 numbers: [${topNumbers.join(', ')}]`);
+    console.log(`🔢 Top ${config.numbersPerDraw} numbers: [${topNumbers.join(', ')}]`);
     console.log(`📊 Total unique numbers used: ${frequencyData.length}`);
     console.log(`📈 Number range: ${Math.min(...frequencyData.map(d => d.number))} to ${Math.max(...frequencyData.map(d => d.number))}`);
     console.log('');
