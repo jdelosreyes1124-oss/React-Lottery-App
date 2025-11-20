@@ -10,7 +10,26 @@ const User = require('../models_mongoose/User');
 const dbService = require('../services/databaseService');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-
+// Username check endpoint - ADD THIS
+router.get('/check-username', async (req, res) => {
+  try {
+    const { username } = req.query;
+    if (!username || username.length < 3) {
+      return res.json({ available: false });
+    }
+    
+    // Adjust User model path as needed
+    const User = require('../models/User');
+    const existingUser = await User.findOne({ 
+      username: username.toLowerCase().trim() 
+    });
+    
+    return res.json({ available: !existingUser });
+  } catch (error) {
+    console.error('Username check error:', error);
+    res.json({ available: true });
+  }
+});
 // POST /api/auth/google/register - Google OAuth Registration (WITH DEBUG LOGGING)
 router.post('/google/register', async (req, res) => {
   try {
@@ -760,35 +779,5 @@ router.delete('/users/delete-all-google', async (req, res) => {
     });
   }
 });
-router.get('/check-username', async (req, res) => {
-  try {
-    const { username } = req.query;
-    
-    if (!username || username.length < 3) {
-      return res.json({ available: false, message: 'Username too short' });
-    }
-    
-    // Check if username exists in database
-    const existingUser = await User.findOne({ 
-      username: username.toLowerCase().trim() 
-    });
-    
-    if (existingUser) {
-      return res.json({ 
-        available: false, 
-        message: 'Username already taken' 
-      });
-    }
-    
-    return res.json({ 
-      available: true, 
-      message: 'Username available' 
-    });
-    
-  } catch (error) {
-    console.error('Username check error:', error);
-    // Return available as true if check fails (graceful degradation)
-    res.json({ available: true, message: 'Check unavailable' });
-  }
-});
+
 module.exports = router;
