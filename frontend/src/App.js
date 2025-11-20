@@ -3740,59 +3740,106 @@ const SignUpForm = ({ onClose, onSwitchToLogin }) => {
     </div>
   );
 };
-// Google Sign-In Button Component
+// Google Sign-In Button Component - FIXED to prevent flickering
 const GoogleSignInButton = ({ onSuccess, onError, disabled }) => {
+  // Use refs to store the latest callbacks without causing re-initialization
+  const onSuccessRef = React.useRef(onSuccess);
+  const onErrorRef = React.useRef(onError);
+  const isInitializedRef = React.useRef(false);
+  const scriptLoadedRef = React.useRef(false);
+
+  // Update refs when callbacks change (without re-initializing the button)
+  React.useEffect(() => {
+    onSuccessRef.current = onSuccess;
+    onErrorRef.current = onError;
+  }, [onSuccess, onError]);
+
+  // Stable callback that uses refs - never changes
   const handleCredentialResponse = React.useCallback(async (response) => {
     try {
       if (response.credential) {
-        await onSuccess(response.credential);
+        await onSuccessRef.current(response.credential);
       }
     } catch (error) {
       console.error('Google login error:', error);
-      onError(error.message || 'Google login failed');
+      onErrorRef.current(error.message || 'Google login failed');
     }
-  }, [onSuccess, onError]);
+  }, []); // ✅ Empty deps - callback never recreated
 
   useEffect(() => {
-    // Load Google Sign-In script
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.defer = true;
-    document.body.appendChild(script);
+    // Prevent multiple initializations
+    if (isInitializedRef.current) {
+      return;
+    }
+
+    // Check if script already exists
+    const existingScript = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+    
+    if (existingScript && scriptLoadedRef.current && window.google) {
+      // Script already loaded, just render the button
+      const buttonContainer = document.getElementById('googleSignInButton');
+      if (buttonContainer && !buttonContainer.hasChildNodes()) {
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: handleCredentialResponse,
+        });
+
+        const containerWidth = buttonContainer.offsetWidth || 384;
+        window.google.accounts.id.renderButton(buttonContainer, {
+          theme: 'filled_blue',
+          size: 'large',
+          width: containerWidth,
+          text: 'signin_with',
+          shape: 'rectangular',
+        });
+        
+        isInitializedRef.current = true;
+      }
+      return;
+    }
+
+    // Load Google Sign-In script only if not already present
+    const script = existingScript || document.createElement('script');
+    
+    if (!existingScript) {
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      document.body.appendChild(script);
+    }
 
     script.onload = () => {
+      scriptLoadedRef.current = true;
+      
       if (window.google && GOOGLE_CLIENT_ID) {
         window.google.accounts.id.initialize({
           client_id: GOOGLE_CLIENT_ID,
           callback: handleCredentialResponse,
         });
 
-        // Get the actual width of the container
         const buttonContainer = document.getElementById('googleSignInButton');
-        if (buttonContainer) {
-          const containerWidth = buttonContainer.offsetWidth || 328;
+        if (buttonContainer && !buttonContainer.hasChildNodes()) {
+          const containerWidth = buttonContainer.offsetWidth || 384;
           
-          window.google.accounts.id.renderButton(
-            buttonContainer,
-            {
-              theme: 'filled_blue',
-              size: 'large',
-              width: containerWidth,
-              text: 'signin_with',
-              shape: 'rectangular',
-            }
-          );
+          window.google.accounts.id.renderButton(buttonContainer, {
+            theme: 'filled_blue',
+            size: 'large',
+            width: containerWidth,
+            text: 'signin_with',
+            shape: 'rectangular',
+          });
+          
+          isInitializedRef.current = true;
         }
       }
     };
 
+    // Cleanup only on unmount
     return () => {
-      if (document.body.contains(script)) {
-        document.body.removeChild(script);
-      }
+      // Don't remove the script on every re-render, only when component unmounts
+      isInitializedRef.current = false;
     };
-  }, [handleCredentialResponse]);
+  }, [handleCredentialResponse]); // ✅ handleCredentialResponse is now stable
 
   return (
     <div className="w-full">
@@ -3803,6 +3850,8 @@ const GoogleSignInButton = ({ onSuccess, onError, disabled }) => {
     </div>
   );
 };
+
+
 // Full-Screen Login Component - UPDATED
 const GoogleLoginScreen = () => {
   const { login, googleLogin } = useAuth();
