@@ -822,13 +822,12 @@ router.post('/:gameType/automation', async (req, res) => {
     
     console.log(`📊 Total unique numbers in frequency data: ${frequencyData.length}`);
     
-    // Get top numbers - should have AT LEAST numbersPerDraw items
+    // Get top numbers - STRICTLY enforce numbersPerDraw count
     let topNumbers = frequencyData
       .slice(0, config.numbersPerDraw)
-      .map(item => item.number)
-      .sort((a, b) => a - b);
+      .map(item => item.number);
     
-    // FINAL SAFEGUARD: Absolutely ensure correct count
+    // ✅ CRITICAL FIX: Force EXACT count regardless of what we got
     if (topNumbers.length < config.numbersPerDraw) {
       console.error(`❌ CRITICAL: topNumbers has ${topNumbers.length}, need ${config.numbersPerDraw}`);
       console.error(`   FrequencyData has ${frequencyData.length} items`);
@@ -850,19 +849,24 @@ router.post('/:gameType/automation', async (req, res) => {
           topNumbers.push(randomNum);
         }
       }
-      
-      topNumbers.sort((a, b) => a - b);
-      console.log(`✅ Forced to ${topNumbers.length} numbers:`, topNumbers);
+    } else if (topNumbers.length > config.numbersPerDraw) {
+      // ✅ FIX: If we somehow got MORE numbers than needed, truncate!
+      console.warn(`⚠️ Got ${topNumbers.length} numbers, truncating to ${config.numbersPerDraw}`);
+      topNumbers = topNumbers.slice(0, config.numbersPerDraw);
     }
+    
+    // Sort the final numbers
+    topNumbers = topNumbers.sort((a, b) => a - b);
     
     console.log(`🔢 Final topNumbers: [${topNumbers.join(', ')}]`);
     console.log(`✅ Final count: ${topNumbers.length} (required: ${config.numbersPerDraw})`);
     
-    // FINAL VERIFICATION
+    // FINAL VERIFICATION - This should NEVER fail now
     if (topNumbers.length !== config.numbersPerDraw) {
       console.error(`❌❌❌ SENDING WRONG COUNT! ${topNumbers.length} instead of ${config.numbersPerDraw}`);
+      throw new Error(`Failed to generate correct number count: got ${topNumbers.length}, need ${config.numbersPerDraw}`);
     } else {
-      console.log(`✅✅✅ COUNT IS CORRECT!`);
+      console.log(`✅✅✅ COUNT IS CORRECT: ${topNumbers.length} numbers`);
     }
     
     // GENERATE BONUS NUMBER for Mark 6 and Lotto 649
@@ -890,12 +894,31 @@ router.post('/:gameType/automation', async (req, res) => {
     console.log('═'.repeat(60));
     console.log('');
     
-    // Build response object
+    // ✅ FINAL VALIDATION: Ensure topNumbers has EXACT count before building response
+    if (topNumbers.length !== config.numbersPerDraw) {
+      throw new Error(`Invalid topNumbers length: ${topNumbers.length}, expected ${config.numbersPerDraw}`);
+    }
+    
+    // ✅ FINAL VALIDATION: Ensure all numbers are within valid range
+    const invalidNumbers = topNumbers.filter(num => num < 1 || num > config.maxNumber);
+    if (invalidNumbers.length > 0) {
+      throw new Error(`Invalid numbers detected: ${invalidNumbers.join(', ')}`);
+    }
+    
+    console.log(`✅ Pre-response validation passed`);
+    console.log(`   - Numbers count: ${topNumbers.length}/${config.numbersPerDraw}`);
+    console.log(`   - Numbers: [${topNumbers.join(', ')}]`);
+    if (bonusNumber !== null) {
+      console.log(`   - Bonus: ${bonusNumber}`);
+    }
+    console.log('');
+    
+    // Build response object with STRICT structure
     const responseData = {
       success: true,
       totalIterations: iterations,
       uniqueCombinations: combinations.size,
-      topNumbers,
+      topNumbers: topNumbers, // ✅ Guaranteed to be exactly config.numbersPerDraw length
       frequencyData,
       metadata: {
         totalIterations: iterations,
@@ -905,6 +928,8 @@ router.post('/:gameType/automation', async (req, res) => {
         period,
         gameType,
         analysisSource: 'random',
+        numbersCount: topNumbers.length, // ✅ Added for verification
+        expectedCount: config.numbersPerDraw, // ✅ Added for verification
         numberRange: {
           min: Math.min(...frequencyData.map(d => d.number)),
           max: Math.max(...frequencyData.map(d => d.number)),
@@ -913,10 +938,17 @@ router.post('/:gameType/automation', async (req, res) => {
       }
     };
     
-    // Add bonus number if applicable
+    // Add bonus number if applicable - ONE bonus only
     if (bonusNumber !== null) {
       responseData.bonus = bonusNumber;
+      console.log(`✅ Adding bonus to response: ${bonusNumber}`);
     }
+    
+    // ✅ FINAL LOG before sending
+    console.log(`📤 Sending response:`);
+    console.log(`   - topNumbers.length: ${responseData.topNumbers.length}`);
+    console.log(`   - bonus: ${responseData.bonus || 'none'}`);
+    console.log('');
     
     res.json(responseData);
   } catch (error) {
