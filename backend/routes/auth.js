@@ -647,28 +647,233 @@ router.delete('/users/delete-all', async (req, res) => {
     if (!currentUser || currentUser.role !== 'admin') {
       return res.status(403).json({ 
         success: false, 
-        error: 'Access denied. Admin privileges required.' 
+        error: 'Admin access required' 
       });
     }
 
-    // Delete all non-admin users
+    console.log('🗑️ Admin requesting to delete all users (except admin)...');
+
+    // Delete all users except admin accounts
     const result = await User.deleteMany({ 
       role: { $ne: 'admin' } 
     });
 
-    console.log(`🗑️  Deleted ${result.deletedCount} non-admin users`);
+    console.log(`✅ Deleted ${result.deletedCount} users`);
 
     res.json({ 
       success: true, 
-      message: `Successfully deleted ${result.deletedCount} users`,
+      message: `Successfully deleted ${result.deletedCount} user(s)`,
       deletedCount: result.deletedCount
     });
 
   } catch (error) {
     console.error('❌ Delete all users error:', error);
     res.status(500).json({ 
-      success: false,  
+      success: false, 
       error: 'Failed to delete users',
+      message: error.message 
+    });
+  }
+});
+
+// GET /api/auth/users/list - List all users (ADMIN ONLY)
+router.get('/users/list', async (req, res) => {
+  try {
+    // Check if user is authenticated and is admin
+    if (!req.session || !req.session.userId) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Not authenticated' 
+      });
+    }
+
+    const currentUser = await User.findOne({ _id: parseInt(req.session.userId) });
+    
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Admin access required' 
+      });
+    }
+
+    // Get all users (excluding password field)
+    const users = await User.find({}, { password: 0 }).sort({ _id: 1 });
+
+    res.json({ 
+      success: true, 
+      users: users,
+      total: users.length
+    });
+
+  } catch (error) {
+    console.error('❌ List users error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to list users',
+      message: error.message 
+    });
+  }
+});
+
+// DELETE /api/auth/users/:userId - Delete specific user (ADMIN ONLY)
+router.delete('/users/:userId', async (req, res) => {
+  try {
+    // Check if user is authenticated and is admin
+    if (!req.session || !req.session.userId) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Not authenticated' 
+      });
+    }
+
+    const currentUser = await User.findOne({ _id: parseInt(req.session.userId) });
+    
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Admin access required' 
+      });
+    }
+
+    const userIdToDelete = parseInt(req.params.userId);
+    
+    // Don't allow deleting yourself
+    if (userIdToDelete === currentUser._id) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Cannot delete your own account' 
+      });
+    }
+
+    const userToDelete = await User.findOne({ _id: userIdToDelete });
+    
+    if (!userToDelete) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'User not found' 
+      });
+    }
+
+    // Don't allow deleting other admin accounts
+    if (userToDelete.role === 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Cannot delete admin accounts' 
+      });
+    }
+
+    await User.deleteOne({ _id: userIdToDelete });
+
+    console.log(`✅ Deleted user: ${userToDelete.username} (ID: ${userIdToDelete._id})`);
+
+    res.json({ 
+      success: true, 
+      message: `Successfully deleted user: ${userToDelete.username}`,
+      deletedUser: {
+        id: userToDelete._id,
+        username: userToDelete.username,
+        email: userToDelete.email
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Delete user error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to delete user',
+      message: error.message 
+    });
+  }
+});
+
+// DELETE /api/auth/users/cleanup-google/:email - Remove stuck Google registration (ADMIN ONLY)
+router.delete('/users/cleanup-google/:email', async (req, res) => {
+  try {
+    // Check if user is authenticated and is admin
+    if (!req.session || !req.session.userId) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Not authenticated' 
+      });
+    }
+
+    const currentUser = await User.findOne({ _id: parseInt(req.session.userId) });
+    
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Admin access required' 
+      });
+    }
+
+    const emailToDelete = req.params.email.toLowerCase();
+    
+    console.log(`🧹 Cleaning up stuck Google registration for: ${emailToDelete}`);
+    
+    // Find and delete user with this email
+    const result = await User.deleteMany({ 
+      email: emailToDelete
+    });
+
+    console.log(`✅ Cleanup complete. Deleted ${result.deletedCount} user(s)`);
+
+    res.json({ 
+      success: true, 
+      message: `Successfully cleaned up ${result.deletedCount} user record(s) for ${emailToDelete}`,
+      deletedCount: result.deletedCount
+    });
+
+  } catch (error) {
+    console.error('❌ Cleanup error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Cleanup failed',
+      message: error.message 
+    });
+  }
+});
+
+// DELETE /api/auth/users/delete-all-google - Delete all Google users (ADMIN ONLY)
+router.delete('/users/delete-all-google', async (req, res) => {
+  try {
+    // Check if user is authenticated and is admin
+    if (!req.session || !req.session.userId) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Not authenticated' 
+      });
+    }
+
+    const currentUser = await User.findOne({ _id: parseInt(req.session.userId) });
+    
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Admin access required' 
+      });
+    }
+
+    console.log('🧹 Admin requesting to delete all Google users...');
+    
+    // Delete all users with Google auth provider (except admins)
+    const result = await User.deleteMany({ 
+      authProvider: 'google',
+      role: { $ne: 'admin' }
+    });
+
+    console.log(`✅ Deleted ${result.deletedCount} Google users`);
+
+    res.json({ 
+      success: true, 
+      message: `Successfully deleted ${result.deletedCount} Google user(s)`,
+      deletedCount: result.deletedCount
+    });
+
+  } catch (error) {
+    console.error('❌ Delete all Google users error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to delete Google users',
       message: error.message 
     });
   }
