@@ -53,6 +53,8 @@ const corsOptions = {
     }
     // Production origins
     const allowedOrigins = [
+      'https://react-lottery-app-seven.vercel.app',
+      'https://lottery-app-2dvh.onrender.com',
       'https://react-lottery-app-qber.vercel.app',
       'https://lottery-backend-tdqv.onrender.com'  // Correct backend URL from Render logs
     ];
