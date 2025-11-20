@@ -131,7 +131,8 @@ function setupMiddleware() {
       collectionName: 'sessions',
       touchAfter: 24 * 3600,
       stringify: false, // ✅ Better handling of session data
-      autoRemove: 'native', // ✅ Let MongoDB handle expired sessions
+      autoRemove: 'disabled', // ✅ CHANGED: Disable auto index creation to avoid conflicts
+      ttl: 24 * 60 * 60, // 24 hours in seconds
       crypto: {
         secret: process.env.SESSION_SECRET || 'your-secret-key-please-change-in-production'
       }
