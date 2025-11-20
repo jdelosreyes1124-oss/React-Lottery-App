@@ -261,13 +261,13 @@ router.post('/register', async (req, res) => {
     const lastUser = await User.findOne().sort({ _id: -1 });
     const nextId = lastUser ? lastUser._id + 1 : 1;
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // ✅ FIX: Let the model's pre-save hook handle password hashing
 
     const newUser = await User.create({
       _id: nextId,
       username: normalizedUsername,
       email: normalizedEmail,
-      password: hashedPassword,
+      password: password,
       authProvider: 'local',
       role: 'user',
       isActive: true,

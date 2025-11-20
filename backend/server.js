@@ -594,6 +594,44 @@ function setupRoutes() {
     });
   });
 
+  // DEBUG ENDPOINT - Check if user password is stored correctly
+  // ⚠️ REMOVE IN PRODUCTION! This is for debugging only
+  app.get('/api/debug/user/:username', async (req, res) => {
+    try {
+      const User = require('./models_mongoose/User');
+      const user = await User.findOne({ username: req.params.username.toLowerCase() });
+      
+      if (!user) {
+        return res.json({
+          found: false,
+          message: 'User not found'
+        });
+      }
+      
+      res.json({
+        found: true,
+        user: {
+          _id: user._id,
+          username: user.username,
+          email: user.email,
+          role: user.role,
+          authProvider: user.authProvider,
+          isActive: user.isActive,
+          hasPassword: !!user.password,
+          passwordLength: user.password ? user.password.length : 0,
+          passwordStartsWith: user.password ? user.password.substring(0, 7) + '...' : 'NO PASSWORD',
+          isBcryptHash: user.password ? user.password.startsWith('$2') : false,
+          createdAt: user.createdAt,
+          lastLogin: user.lastLogin
+        }
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: error.message
+      });
+    }
+  });
+
   // ============================================
   // ERROR HANDLING
   // ============================================
