@@ -45,9 +45,19 @@ const api = {
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ username, password }),
   credentials: 'include'
-    }).then(res => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
+    }).then(async res => {
+      const data = await res.json();
+      if (!res.ok) {
+        // Handle specific error cases with user-friendly messages
+        if (res.status === 401) {
+          throw new Error(data.message || data.error || 'Invalid username or password');
+        }
+        if (res.status === 404) {
+          throw new Error(data.message || data.error || 'User not found');
+        }
+        throw new Error(data.message || data.error || `Login failed (${res.status})`);
+      }
+      return data;
     }),
   
   register: ({ username, password, email }) =>
@@ -56,9 +66,19 @@ const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password, email }),
       credentials: 'include'
-    }).then(res => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
+    }).then(async res => {
+      const data = await res.json();
+      if (!res.ok) {
+        // Handle specific error cases with user-friendly messages
+        if (res.status === 409) {
+          throw new Error(data.message || data.error || 'Username already exists. Please choose a different username.');
+        }
+        if (res.status === 400) {
+          throw new Error(data.message || data.error || 'Invalid registration information. Please check your details.');
+        }
+        throw new Error(data.message || data.error || `Registration failed (${res.status})`);
+      }
+      return data;
     }),
   
   googleLogin: (tokenId) =>
@@ -78,9 +98,19 @@ const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token: tokenId, username: username }),
     credentials: 'include'
-  }).then(res => {
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
+  }).then(async res => {
+    const data = await res.json();
+    if (!res.ok) {
+      // Handle specific error cases
+      if (res.status === 409) {
+        throw new Error(data.message || data.error || 'Username already exists. Please choose a different username.');
+      }
+      if (res.status === 400) {
+        throw new Error(data.message || data.error || 'Invalid Google token or username');
+      }
+      throw new Error(data.message || data.error || `Registration failed (${res.status})`);
+    }
+    return data;
   }),
   
   verifyAuth: () =>
@@ -3740,106 +3770,59 @@ const SignUpForm = ({ onClose, onSwitchToLogin }) => {
     </div>
   );
 };
-// Google Sign-In Button Component - FIXED to prevent flickering
+// Google Sign-In Button Component
 const GoogleSignInButton = ({ onSuccess, onError, disabled }) => {
-  // Use refs to store the latest callbacks without causing re-initialization
-  const onSuccessRef = React.useRef(onSuccess);
-  const onErrorRef = React.useRef(onError);
-  const isInitializedRef = React.useRef(false);
-  const scriptLoadedRef = React.useRef(false);
-
-  // Update refs when callbacks change (without re-initializing the button)
-  React.useEffect(() => {
-    onSuccessRef.current = onSuccess;
-    onErrorRef.current = onError;
-  }, [onSuccess, onError]);
-
-  // Stable callback that uses refs - never changes
   const handleCredentialResponse = React.useCallback(async (response) => {
     try {
       if (response.credential) {
-        await onSuccessRef.current(response.credential);
+        await onSuccess(response.credential);
       }
     } catch (error) {
       console.error('Google login error:', error);
-      onErrorRef.current(error.message || 'Google login failed');
+      onError(error.message || 'Google login failed');
     }
-  }, []); // ✅ Empty deps - callback never recreated
+  }, [onSuccess, onError]);
 
   useEffect(() => {
-    // Prevent multiple initializations
-    if (isInitializedRef.current) {
-      return;
-    }
-
-    // Check if script already exists
-    const existingScript = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
-    
-    if (existingScript && scriptLoadedRef.current && window.google) {
-      // Script already loaded, just render the button
-      const buttonContainer = document.getElementById('googleSignInButton');
-      if (buttonContainer && !buttonContainer.hasChildNodes()) {
-        window.google.accounts.id.initialize({
-          client_id: GOOGLE_CLIENT_ID,
-          callback: handleCredentialResponse,
-        });
-
-        const containerWidth = buttonContainer.offsetWidth || 384;
-        window.google.accounts.id.renderButton(buttonContainer, {
-          theme: 'filled_blue',
-          size: 'large',
-          width: containerWidth,
-          text: 'signin_with',
-          shape: 'rectangular',
-        });
-        
-        isInitializedRef.current = true;
-      }
-      return;
-    }
-
-    // Load Google Sign-In script only if not already present
-    const script = existingScript || document.createElement('script');
-    
-    if (!existingScript) {
-      script.src = 'https://accounts.google.com/gsi/client';
-      script.async = true;
-      script.defer = true;
-      document.body.appendChild(script);
-    }
+    // Load Google Sign-In script
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    document.body.appendChild(script);
 
     script.onload = () => {
-      scriptLoadedRef.current = true;
-      
       if (window.google && GOOGLE_CLIENT_ID) {
         window.google.accounts.id.initialize({
           client_id: GOOGLE_CLIENT_ID,
           callback: handleCredentialResponse,
         });
 
+        // Get the actual width of the container
         const buttonContainer = document.getElementById('googleSignInButton');
-        if (buttonContainer && !buttonContainer.hasChildNodes()) {
-          const containerWidth = buttonContainer.offsetWidth || 384;
+        if (buttonContainer) {
+          const containerWidth = buttonContainer.offsetWidth || 328;
           
-          window.google.accounts.id.renderButton(buttonContainer, {
-            theme: 'filled_blue',
-            size: 'large',
-            width: containerWidth,
-            text: 'signin_with',
-            shape: 'rectangular',
-          });
-          
-          isInitializedRef.current = true;
+          window.google.accounts.id.renderButton(
+            buttonContainer,
+            {
+              theme: 'filled_blue',
+              size: 'large',
+              width: containerWidth,
+              text: 'signin_with',
+              shape: 'rectangular',
+            }
+          );
         }
       }
     };
 
-    // Cleanup only on unmount
     return () => {
-      // Don't remove the script on every re-render, only when component unmounts
-      isInitializedRef.current = false;
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
     };
-  }, [handleCredentialResponse]); // ✅ handleCredentialResponse is now stable
+  }, [handleCredentialResponse]);
 
   return (
     <div className="w-full">
@@ -3850,8 +3833,6 @@ const GoogleSignInButton = ({ onSuccess, onError, disabled }) => {
     </div>
   );
 };
-
-
 // Full-Screen Login Component - UPDATED
 const GoogleLoginScreen = () => {
   const { login, googleLogin } = useAuth();
