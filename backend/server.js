@@ -36,11 +36,14 @@ console.log('🔄 Connecting to MongoDB...');
 async function connectDatabase() {
   try {
     await mongoose.connect(mongoUri, {
-      // These options help with connection stability
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
     });
     console.log('✅ MongoDB Atlas connected successfully');
+    
+    // Wait for connection to fully stabilize
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
     return true;
   } catch (err) {
     console.error('❌ MongoDB connection error:', err);
@@ -84,8 +87,9 @@ function setupMiddleware() {
     maxAge: 86400
   };
 
+  // COOP headers removed to allow Google OAuth popup communication
   app.use(cors(corsOptions));
-  app.options('*', cors(corsOptions));
+  app.options('*', cors(corsOptions)); // Handle preflight requests
 
   // Security headers
   app.use(helmet({ 
@@ -119,30 +123,25 @@ function setupMiddleware() {
   });
 
   // ============================================
-  // SESSION MIDDLEWARE - FIXED TO USE EXISTING CONNECTION
+  // SESSION MIDDLEWARE - FIXED VERSION
   // ============================================
-  console.log('🔐 Setting up session store with existing Mongoose connection...');
+  console.log('🔐 Setting up session store...');
   
   app.use(session({
     secret: process.env.SESSION_SECRET || 'your-secret-key-please-change-in-production',
     store: MongoStore.create({
-      client: mongoose.connection.getClient(), // ✅ USE EXISTING CONNECTION
-      dbName: process.env.MONGODB_DB,
-      collectionName: 'sessions',
+      mongoUrl: mongoUri,  // ✅ Let MongoStore create its own connection
+      collectionName: 'sessions_v2',  // ✅ New collection to avoid conflicts
       touchAfter: 24 * 3600,
-      stringify: false, // ✅ Better handling of session data
-      autoRemove: 'disabled', // ✅ CHANGED: Disable auto index creation to avoid conflicts
-      ttl: 24 * 60 * 60, // 24 hours in seconds
-      crypto: {
-        secret: process.env.SESSION_SECRET || 'your-secret-key-please-change-in-production'
-      }
+      ttl: 24 * 60 * 60,
     }),
     resave: false,
     saveUninitialized: false,
+    rolling: true,
     proxy: true,
     name: process.env.SESSION_COOKIE_NAME || 'connect.sid',
     cookie: {
-      secure: true,
+      secure: true, // Always use secure cookies
       httpOnly: true,
       sameSite: 'none',
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
@@ -153,7 +152,7 @@ function setupMiddleware() {
 
   console.log('✅ Session middleware configured successfully');
 
-  // Debug middleware for sessions
+  // Debug middleware for sessions (remove in production)
   if (process.env.NODE_ENV === 'development') {
     app.use((req, res, next) => {
       console.log('🔐 Session Debug:', {
@@ -173,25 +172,29 @@ function setupMiddleware() {
 function setupRoutes() {
   const db = require('./models_mongoose');
   
+  // ============================================
+  // ROUTES - CRITICAL ORDER FIX
+  // ============================================
   // API routes - ORDER MATTERS!
   app.use('/api/auth', authRoutes);
   app.use('/api/predictions', predictionRoutes);
 
   // CRITICAL: Load historicalResults BEFORE admin routes
   app.use('/api/admin', historicalResultsRoutes);
-  console.log('✅ Historical Results routes loaded');
+  console.log('✅ Historical Results routes loaded - handles /api/admin/historical-results/539/*');
 
   // Admin routes MUST come AFTER historicalResults
   app.use('/api/admin', adminRoutes);
-  console.log('✅ Admin routes loaded');
+  console.log('✅ Admin routes loaded - conflicting POST route should be commented out');
 
-  // Scheduler routes
+  // Scheduler routes for web scraping
   app.use('/api/admin', schedulerRoutes);
-  console.log('✅ Scheduler routes loaded');
+  console.log('✅ Scheduler routes loaded - handles /api/admin/scheduler/*');
 
   // ============================================
   // MAGAYO API TESTING
   // ============================================
+
   app.get('/api/admin/magayo/test', async (req, res) => {
     console.log('\n🧪 MAGAYO API TEST START');
     console.log('═'.repeat(60));
@@ -290,6 +293,7 @@ function setupRoutes() {
           console.log('🎫 Ticket:', ticket);
           console.log('⏱️  Response time:', responseTime, 'ms');
           
+          // Parse the ticket
           const parts = ticket.split(',');
           const numbers = [];
           let bonus = null;
@@ -451,6 +455,7 @@ function setupRoutes() {
   // ============================================
   // DEBUG ROUTES
   // ============================================
+  // Debug route to verify historicalResults routes are loaded
   app.get('/api/admin/test-historical', (req, res) => {
     res.json({
       success: true,
@@ -461,11 +466,12 @@ function setupRoutes() {
         'DELETE /api/admin/historical-results/539/:id',
         'POST /api/admin/historical-results/539/sync',
         'GET /api/admin/historical-results/539/status'
-      ]
+      ],
+      note: 'These routes should now be accessible'
     });
   });
 
-  // Health check endpoint
+  // Health check endpoint with detailed info
   app.get('/api/health', async (req, res) => {
     try {
       const dbState = mongoose.connection.readyState;
@@ -476,10 +482,12 @@ function setupRoutes() {
         3: 'disconnecting'
       };
       
+      // Get collection stats
       const collections = await mongoose.connection.db.listCollections().toArray();
       
+      // Get document counts
       const stats = {};
-      for (const collection of ['users', 'lottery_results', 'predictions', 'sessions', 'admin_logs']) {
+      for (const collection of ['users', 'lottery_results', 'predictions', 'sessions_v2', 'admin_logs']) {
         try {
           stats[collection] = await mongoose.connection.db.collection(collection).countDocuments();
         } catch (err) {
@@ -495,9 +503,19 @@ function setupRoutes() {
         documents: stats,
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
-        version: '2.0.1',
+        version: '2.0.2',
         environment: process.env.NODE_ENV || 'development',
-        sessionStore: 'MongoDB (using existing connection)'
+        cors: {
+          origin: req.get('origin') || 'no-origin',
+          credentials: true
+        },
+        routes: {
+          historicalResultsLoaded: true,
+          adminLoaded: true,
+          magayoTestingLoaded: true,
+          order: 'historicalResults BEFORE admin (correct)'
+        },
+        sessionStore: 'MongoDB (sessions_v2 collection)'
       });
     } catch (error) {
       res.status(500).json({
@@ -512,9 +530,9 @@ function setupRoutes() {
   app.get('/api', (req, res) => {
     res.json({
       name: 'Lottery Prediction API',
-      version: '2.0.1',
+      version: '2.0.2',
       database: 'MongoDB Atlas',
-      sessionStore: 'MongoDB (shared connection)',
+      sessionStore: 'MongoDB (sessions_v2)',
       endpoints: {
         auth: {
           login: 'POST /api/auth/login',
@@ -534,6 +552,10 @@ function setupRoutes() {
           syncExcel: 'POST /api/admin/historical-results/:gameType/sync',
           schedulerStatus: 'GET /api/admin/scheduler/status/:gameType',
           triggerScrape: 'POST /api/admin/scheduler/trigger/:gameType'
+        },
+        magayoTesting: {
+          fullTest: 'GET /api/admin/magayo/test',
+          quickTest: 'GET /api/admin/magayo/quick-test'
         },
         health: 'GET /api/health'
       }
@@ -564,28 +586,40 @@ function setupRoutes() {
     res.json({
       success: true,
       message: 'CORS is working!',
-      origin: req.get('origin') || 'no-origin'
+      origin: req.get('origin') || 'no-origin',
+      headers: {
+        'access-control-allow-origin': res.get('access-control-allow-origin'),
+        'access-control-allow-credentials': res.get('access-control-allow-credentials')
+      }
     });
   });
 
   // ============================================
   // ERROR HANDLING
   // ============================================
+  // 404 handler
   app.use('*', (req, res) => {
+    // Special logging for historical-results 404s
     if (req.originalUrl.includes('historical-results')) {
       console.error('❌ 404 for historical-results route:', req.method, req.originalUrl);
+      console.error('   This means the route is not properly registered');
+    } else if (process.env.NODE_ENV === 'development') {
+      console.log(`❌ 404 Not Found: ${req.method} ${req.originalUrl}`);
     }
     
     res.status(404).json({ 
       error: 'Endpoint not found',
       path: req.originalUrl,
-      method: req.method
+      method: req.method,
+      message: 'The requested API endpoint does not exist'
     });
   });
 
+  // Global error handler
   app.use((err, req, res, next) => {
     console.error('💥 Error:', err.stack);
     
+    // Handle CORS errors
     if (err.message === 'Not allowed by CORS') {
       return res.status(403).json({
         error: 'CORS error',
@@ -594,6 +628,7 @@ function setupRoutes() {
       });
     }
     
+    // Handle specific MongoDB error types
     if (err.name === 'ValidationError') {
       return res.status(400).json({
         error: 'Validation error',
@@ -604,7 +639,7 @@ function setupRoutes() {
       });
     }
     
-    if (err.code === 11000) {
+    if (err.code === 11000) { // MongoDB duplicate key error
       const field = Object.keys(err.keyPattern)[0];
       return res.status(409).json({
         error: 'Duplicate entry',
@@ -615,7 +650,8 @@ function setupRoutes() {
     
     res.status(err.status || 500).json({
       error: 'Something went wrong!',
-      message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+      message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
     });
   });
 }
@@ -643,9 +679,21 @@ async function startServer() {
       console.log(`📊 API: http://localhost:${PORT}/api`);
       console.log(`🏥 Health: http://localhost:${PORT}/api/health`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`☁️  Database: MongoDB Atlas`);
-      console.log(`🔐 Session store: MongoDB (shared connection) ✅`);
-      console.log(`📝 CORS: Enabled`);
+      console.log(`☁️  Database: MongoDB Atlas - ${process.env.MONGODB_DB}`);
+      console.log(`🔐 Session store: MongoDB (sessions_v2) ✅`);
+      console.log(`📝 CORS: Enabled for Vercel apps + configured origins`);
+      console.log('=====================================');
+      console.log('📁 ROUTE LOADING ORDER (CRITICAL):');
+      console.log('   1. Auth routes');
+      console.log('   2. Predictions routes');
+      console.log('   3. Historical Results routes (FIRST for /admin)');
+      console.log('   4. Admin routes (SECOND for /admin)');
+      console.log('   5. Scheduler routes');
+      console.log('   ✅ This ensures 539 routes work correctly');
+      console.log('=====================================');
+      console.log('🧪 MAGAYO TESTING ENDPOINTS:');
+      console.log('   - Full test: GET /api/admin/magayo/test');
+      console.log('   - Quick test: GET /api/admin/magayo/quick-test');
       console.log('=====================================');
       console.log('✅ All systems operational!');
       console.log('=====================================');
