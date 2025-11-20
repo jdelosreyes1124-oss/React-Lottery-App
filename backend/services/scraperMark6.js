@@ -1,6 +1,6 @@
 /**
  * Web Scraper Service for Hong Kong Mark Six
- * Updated for Render.com deployment with @sparticuz/chromium
+ * FIXED: Compatible with scheduledScraper.js
  * services/scraperMark6.js
  */
 
@@ -15,6 +15,11 @@ class Mark6ScraperService {
     this.maxPages = 102;
   }
 
+  /**
+   * Main scraping method - scrapes Mark 6 results
+   * @param {number} maxResults - Maximum number of results to fetch
+   * @returns {Promise<Array>} Array of lottery results
+   */
   async scrapeResults(maxResults = 50) {
     console.log('🔍 Starting Mark 6 scraper...');
     console.log(`📊 Target: ${maxResults} results`);
@@ -30,10 +35,13 @@ class Mark6ScraperService {
       return results;
       
     } catch (error) {
-      console.error('❌ Failed:', error.message);
+      console.error('❌ Mark 6 scraper failed:', error.message);
       throw error;
     } finally {
-      if (browser) await browser.close();
+      if (browser) {
+        await browser.close();
+        console.log('🔒 Browser closed');
+      }
     }
   }
 
@@ -217,8 +225,7 @@ class Mark6ScraperService {
             const result = {
               date,
               numbers: numbers.sort((a, b) => a - b),
-              source: 'lottolyzer-mark6-history',
-              scrapedAt: new Date().toISOString()
+              gameType: 'mark6'
             };
             
             // Add bonus if valid and not already in main numbers
@@ -235,7 +242,23 @@ class Mark6ScraperService {
     });
   }
 
+  /**
+   * Validates lottery results data
+   * @param {Array} results - Array of lottery result objects
+   * @returns {Object} Validation statistics
+   */
   validateResults(results) {
+    if (!Array.isArray(results)) {
+      return {
+        total: 0,
+        valid: 0,
+        invalid: 0,
+        validationRate: '0%',
+        errors: [],
+        duplicates: 0
+      };
+    }
+
     const report = { 
       total: results.length, 
       valid: 0, 
@@ -252,36 +275,70 @@ class Mark6ScraperService {
       }
       seenDates.add(result.date);
       
-      if (!result.numbers || result.numbers.length !== 6) {
+      const validation = this.validateSingleResult(result);
+      if (validation.valid) {
+        report.valid++;
+      } else {
         report.invalid++;
-        report.errors.push(`Result ${index}: Invalid number count`);
-        return;
-      }
-      
-      if (!result.numbers.every(n => n >= 1 && n <= 49)) {
-        report.invalid++;
-        report.errors.push(`Result ${index}: Numbers out of range`);
-        return;
-      }
-      
-      if (new Set(result.numbers).size !== 6) {
-        report.invalid++;
-        report.errors.push(`Result ${index}: Duplicate numbers`);
-        return;
-      }
-      
-      if (result.bonus !== undefined && result.bonus !== null) {
-        if (result.bonus < 1 || result.bonus > 49 || result.numbers.includes(result.bonus)) {
-          report.invalid++;
-          report.errors.push(`Result ${index}: Invalid bonus`);
-          return;
+        if (report.errors.length < 10) {
+          report.errors.push({
+            index,
+            date: result?.date,
+            error: validation.error
+          });
         }
       }
-      
-      report.valid++;
     });
     
+    report.validationRate = report.total > 0 ? `${Math.round((report.valid / report.total) * 100)}%` : '0%';
+    
     return report;
+  }
+
+  /**
+   * Validates a single lottery result
+   * @param {Object} result - Single lottery result object
+   * @returns {Object} Validation result with error message
+   */
+  validateSingleResult(result) {
+    if (!result) {
+      return { valid: false, error: 'Result is null or undefined' };
+    }
+    
+    if (!result.date) {
+      return { valid: false, error: 'Missing date' };
+    }
+    
+    if (!result.numbers || !Array.isArray(result.numbers)) {
+      return { valid: false, error: 'Missing or invalid numbers array' };
+    }
+    
+    if (result.numbers.length !== 6) {
+      return { valid: false, error: `Expected 6 numbers, got ${result.numbers.length}` };
+    }
+    
+    for (let i = 0; i < result.numbers.length; i++) {
+      const num = result.numbers[i];
+      if (!Number.isInteger(num) || num < 1 || num > 49) {
+        return { valid: false, error: `Invalid number at position ${i}: ${num}` };
+      }
+    }
+    
+    const uniqueNumbers = new Set(result.numbers);
+    if (uniqueNumbers.size !== 6) {
+      return { valid: false, error: 'Duplicate numbers found' };
+    }
+    
+    if (result.bonus !== null && result.bonus !== undefined) {
+      if (!Number.isInteger(result.bonus) || result.bonus < 1 || result.bonus > 49) {
+        return { valid: false, error: `Invalid bonus number: ${result.bonus}` };
+      }
+      if (result.numbers.includes(result.bonus)) {
+        return { valid: false, error: 'Bonus number duplicates main number' };
+      }
+    }
+    
+    return { valid: true };
   }
 
   async debugScrape(maxResults = 50) {

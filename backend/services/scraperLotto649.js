@@ -1,5 +1,6 @@
-// LOTTO649 Scraper - Fixed Version
+// LOTTO649 Scraper - FIXED VERSION
 // Scrapes Taiwan Lotto 649 results from en.lottolyzer.com
+// Compatible with scheduledScraper.js
 
 const axios = require('axios');
 const cheerio = require('cheerio');
@@ -14,12 +15,12 @@ async function scrapeResults(maxResults = 3000) {
   const resultsPerPage = 50;
   const maxPages = Math.ceil(maxResults / resultsPerPage);
   
-  console.log(`Starting Taiwan Lotto 649 scrape for ${maxResults} results...`);
+  console.log(`🔍 Starting Taiwan Lotto 649 scrape for ${maxResults} results...`);
   
   for (let page = 1; page <= maxPages; page++) {
     try {
       const url = `https://en.lottolyzer.com/history/taiwan/lotto-649/page/${page}/per-page/50/summary-view`;
-      console.log(`Fetching Lotto 649 page ${page}...`);
+      console.log(`📄 Fetching Lotto 649 page ${page}...`);
       
       // Fetch the page
       const response = await axios.get(url, {
@@ -58,7 +59,9 @@ async function scrapeResults(maxResults = 3000) {
       if (winningNoColIndex === -1) winningNoColIndex = 2;
       if (suppNoColIndex === -1) suppNoColIndex = 3;
       
-      console.log(`Column indices - Date: ${dateColIndex}, Winning: ${winningNoColIndex}, Supp: ${suppNoColIndex}`);
+      if (page === 1) {
+        console.log(`📊 Column indices - Date: ${dateColIndex}, Winning: ${winningNoColIndex}, Supp: ${suppNoColIndex}`);
+      }
       
       // Find table rows
       let rows = table.find('tbody tr');
@@ -67,7 +70,7 @@ async function scrapeResults(maxResults = 3000) {
         rows = table.find('tr').not(':first');
       }
       
-      console.log(`Found ${rows.length} rows on page ${page}`);
+      console.log(`   Found ${rows.length} rows on page ${page}`);
       
       // Process each row 
       rows.each((index, element) => {
@@ -80,12 +83,12 @@ async function scrapeResults(maxResults = 3000) {
             const winningNumbersText = $(cells[winningNoColIndex]).text().trim();
             const suppNumberText = $(cells[suppNoColIndex]).text().trim();
             
-            // Debug log for first few rows
-            if (results.length < 3) {
-              console.log(`\nRow ${index + 1}:`);
-              console.log(`  Date: "${dateText}"`);
-              console.log(`  Winning: "${winningNumbersText}"`);
-              console.log(`  Supp: "${suppNumberText}"`);
+            // Debug log for first few rows on first page
+            if (page === 1 && results.length < 3) {
+              console.log(`\n   Row ${index + 1}:`);
+              console.log(`     Date: "${dateText}"`);
+              console.log(`     Winning: "${winningNumbersText}"`);
+              console.log(`     Supp: "${suppNumberText}"`);
             }
             
             // Parse winning numbers - should be exactly 6 numbers
@@ -101,29 +104,29 @@ async function scrapeResults(maxResults = 3000) {
             if (dateText && winningNumbers.length === 6) {
               const result = {
                 date: dateText,
-                numbers: winningNumbers,
+                numbers: winningNumbers.sort((a, b) => a - b),
                 bonus: (!isNaN(suppNumber) && suppNumber >= 1 && suppNumber <= 49) ? suppNumber : null,
                 gameType: 'lotto649'
               };
               
               // Final validation
-              if (results.length < 3) {
-                console.log(`  Parsed: ${result.numbers.join(', ')} + Bonus: ${result.bonus}`);
+              if (page === 1 && results.length < 3) {
+                console.log(`     ✅ Parsed: [${result.numbers.join(', ')}] + Bonus: ${result.bonus}`);
               }
               
               results.push(result);
             } else {
-              if (results.length < 3) {
-                console.log(`  ❌ Skipped: Invalid data (${winningNumbers.length} numbers found)`);
+              if (page === 1 && results.length < 3) {
+                console.log(`     ❌ Skipped: Invalid data (${winningNumbers.length} numbers found)`);
               }
             }
           } catch (err) {
-            console.error(`Error parsing row ${index}:`, err.message);
+            console.error(`   Error parsing row ${index}:`, err.message);
           }
         }
       });
       
-      console.log(`Lotto 649 Page ${page}: Found ${results.length} total results\n`);
+      console.log(`   Lotto 649 Page ${page}: Total ${results.length} results collected\n`);
       
       // Stop if we've collected enough results
       if (results.length >= maxResults) {
@@ -134,7 +137,7 @@ async function scrapeResults(maxResults = 3000) {
       await new Promise(resolve => setTimeout(resolve, 500));
       
     } catch (error) {
-      console.error(`Error fetching page ${page}:`, error.message);
+      console.error(`❌ Error fetching page ${page}:`, error.message);
     }
   }
   
@@ -154,15 +157,23 @@ function validateResults(results) {
       valid: 0,
       invalid: 0,
       validationRate: '0%',
-      errors: []
+      errors: [],
+      duplicates: 0
     };
   }
 
   let valid = 0;
   let invalid = 0;
   const errors = [];
+  const seenDates = new Set();
+  let duplicates = 0;
 
   results.forEach((result, index) => {
+    if (seenDates.has(result.date)) {
+      duplicates++;
+    }
+    seenDates.add(result.date);
+    
     const validation = validateSingleResult(result);
     if (validation.valid) {
       valid++;
@@ -186,7 +197,8 @@ function validateResults(results) {
     valid,
     invalid,
     validationRate,
-    errors
+    errors,
+    duplicates
   };
 }
 
@@ -231,6 +243,10 @@ function validateSingleResult(result) {
   if (result.bonus !== null && result.bonus !== undefined) {
     if (!Number.isInteger(result.bonus) || result.bonus < 1 || result.bonus > 49) {
       return { valid: false, error: `Invalid bonus number: ${result.bonus}` };
+    }
+    // Check bonus doesn't duplicate main numbers
+    if (result.numbers.includes(result.bonus)) {
+      return { valid: false, error: 'Bonus number duplicates main number' };
     }
   }
   
