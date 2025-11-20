@@ -1,7 +1,7 @@
-// routes/auth.js - FIXED VERSION WITH IMPROVED ERROR HANDLING
+// routes/auth.js - DEPLOYMENT-FRIENDLY VERSION (uses bcryptjs)
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs'); // ← Changed from 'bcrypt' to 'bcryptjs'
 
 // Import your User model - adjust path as needed
 const db = require('../models_mongoose');
@@ -188,7 +188,7 @@ router.post('/register', async (req, res) => {
     
     console.log('[REGISTER] All checks passed, creating user...');
     
-    // Hash password
+    // Hash password with bcryptjs (10 rounds)
     const hashedPassword = await bcrypt.hash(password, 10);
     
     // Create user object
@@ -305,7 +305,7 @@ router.post('/login', async (req, res) => {
       });
     }
     
-    // Check password
+    // Check password with bcryptjs
     const validPassword = await bcrypt.compare(password, user.password);
     
     if (!validPassword) {
