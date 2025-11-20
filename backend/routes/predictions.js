@@ -720,106 +720,79 @@ router.post('/:gameType/automation', async (req, res) => {
     
     // Game configuration
     const gameConfig = {
-      '539': { numbersPerDraw: 8, maxNumber: 39, hasBonus: false },  // Changed from 5 to 8
+      '539': { numbersPerDraw: 8, maxNumber: 39, hasBonus: false },
       'mark6': { numbersPerDraw: 6, maxNumber: 49, hasBonus: true },
       'lotto649': { numbersPerDraw: 6, maxNumber: 49, hasBonus: true }
     };
     
     const config = gameConfig[gameType];
     
-    // Get frequency data
-    const daysMap = {
-      '1week': 7,
-      '1month': 30,
-      '3months': 90,
-      'all': 365
-    };
+    console.log(`📋 Config: ${config.numbersPerDraw} numbers from 1-${config.maxNumber}`);
     
-    const days = daysMap[period] || 30;
-    console.log(`📈 Loading frequency data...`);
-    const frequency = await dbService.getNumberFrequency(gameType, days);
+    // ABSOLUTE GUARANTEE: This function WILL return exactly numbersPerDraw numbers
+    function generateExactNumbers(count, max) {
+      const numbers = new Set();
+      const allNumbers = [];
+      
+      // Create array of all possible numbers
+      for (let i = 1; i <= max; i++) {
+        allNumbers.push(i);
+      }
+      
+      // Shuffle using Fisher-Yates
+      for (let i = allNumbers.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [allNumbers[i], allNumbers[j]] = [allNumbers[j], allNumbers[i]];
+      }
+      
+      // Take exactly 'count' numbers
+      const result = allNumbers.slice(0, count);
+      
+      // TRIPLE CHECK
+      if (result.length !== count) {
+        console.error(`GENERATION ERROR: Got ${result.length}, need ${count}`);
+        // Emergency: force exact count
+        while (result.length < count) {
+          const rand = Math.floor(Math.random() * max) + 1;
+          if (!result.includes(rand)) {
+            result.push(rand);
+          }
+        }
+      }
+      
+      return result.sort((a, b) => a - b);
+    }
     
-    console.log(`✅ Frequency data loaded: ${frequency.totalDraws} draws analyzed`);
-    console.log('');
-    
-    // Generate unique combinations
+    // Generate combinations
     const combinations = new Set();
     const frequencyTracker = {};
     
-    // Initialize frequency tracker for ALL numbers
+    // Initialize frequency tracker for ALL possible numbers
     for (let i = 1; i <= config.maxNumber; i++) {
       frequencyTracker[i] = 0;
     }
     
-    // Create a weighted pool of ALL numbers (1 to maxNumber)
-    const createWeightedPool = () => {
-      const pool = [];
-      
-      // Add all numbers with their weights
-      for (let num = 1; num <= config.maxNumber; num++) {
-        // Find frequency data for this number
-        const freqData = frequency.mainNumbers.find(f => f.number === num);
-        const weight = freqData ? Math.max(freqData.count, 1) : 1;
-        
-        // Add the number to pool based on weight
-        for (let w = 0; w < weight; w++) {
-          pool.push(num);
-        }
-      }
-      
-      return pool;
-    };
+    console.log(`🔄 Generating ${iterations} unique combinations...`);
     
-    // Generate combinations using weighted random selection
     let attempts = 0;
     const maxAttempts = iterations * 10;
-    
-    console.log(`🔄 Generating ${iterations} unique combinations...`);
     
     while (combinations.size < iterations && attempts < maxAttempts) {
       attempts++;
       
-      const numbers = [];
-      const weightedPool = createWeightedPool();
-      const usedIndices = new Set();
+      // Generate EXACTLY numbersPerDraw numbers
+      const numbers = generateExactNumbers(config.numbersPerDraw, config.maxNumber);
       
-      // Select numbers from the weighted pool
-      while (numbers.length < config.numbersPerDraw) {
-        const poolIndex = Math.floor(Math.pow(Math.random(), 1.5) * weightedPool.length);
-        
-        if (!usedIndices.has(poolIndex)) {
-          usedIndices.add(poolIndex);
-          const selectedNumber = weightedPool[poolIndex];
-          
-          if (!numbers.includes(selectedNumber)) {
-            numbers.push(selectedNumber);
-          }
-        }
-        
-        // Fallback if we're stuck
-        if (usedIndices.size > weightedPool.length * 0.8) {
-          const randomNum = Math.floor(Math.random() * config.maxNumber) + 1;
-          if (!numbers.includes(randomNum)) {
-            numbers.push(randomNum);
-          }
-        }
+      // Verify count (this should NEVER fail with our function)
+      if (numbers.length !== config.numbersPerDraw) {
+        console.error(`❌ IMPOSSIBLE ERROR: Generated ${numbers.length} instead of ${config.numbersPerDraw}`);
+        continue; // Skip this combination
       }
       
-      // Emergency fallback: ensure exactly config.numbersPerDraw numbers
-      let safetyCounter = 0;
-      while (numbers.length < config.numbersPerDraw && safetyCounter < 1000) {
-        safetyCounter++;
-        const randomNum = Math.floor(Math.random() * config.maxNumber) + 1;
-        if (!numbers.includes(randomNum)) {
-          numbers.push(randomNum);
-        }
-      }
-      
-      // Sort and create combination string
-      numbers.sort((a, b) => a - b);
+      // Create combination key
       const combinationKey = numbers.join(',');
       
-      // Add to set if unique
+      // Add if unique
       if (!combinations.has(combinationKey)) {
         combinations.add(combinationKey);
         
@@ -827,12 +800,15 @@ router.post('/:gameType/automation', async (req, res) => {
         numbers.forEach(num => {
           frequencyTracker[num]++;
         });
+        
+        // Log first combination
+        if (combinations.size === 1) {
+          console.log(`  First combination: [${numbers.join(', ')}] (${numbers.length} numbers)`);
+        }
       }
     }
     
-    console.log(`✅ Generated ${combinations.size} unique combinations`);
-    console.log(`📊 Total attempts: ${attempts}`);
-    console.log('');
+    console.log(`✅ Generated ${combinations.size} unique combinations in ${attempts} attempts`);
     
     // Convert frequency tracker to sorted array
     const frequencyData = Object.entries(frequencyTracker)
@@ -844,13 +820,51 @@ router.post('/:gameType/automation', async (req, res) => {
       .filter(item => item.frequency > 0)
       .sort((a, b) => b.frequency - a.frequency);
     
-    // Get top numbers
-    const topNumbers = frequencyData.slice(0, config.numbersPerDraw).map(item => item.number);
+    console.log(`📊 Total unique numbers in frequency data: ${frequencyData.length}`);
     
-    console.log(`🔢 Top ${config.numbersPerDraw} numbers: [${topNumbers.join(', ')}]`);
-    console.log(`📊 Total unique numbers used: ${frequencyData.length}`);
-    console.log(`📈 Number range: ${Math.min(...frequencyData.map(d => d.number))} to ${Math.max(...frequencyData.map(d => d.number))}`);
-    console.log('');
+    // Get top numbers - should have AT LEAST numbersPerDraw items
+    let topNumbers = frequencyData
+      .slice(0, config.numbersPerDraw)
+      .map(item => item.number)
+      .sort((a, b) => a - b);
+    
+    // FINAL SAFEGUARD: Absolutely ensure correct count
+    if (topNumbers.length < config.numbersPerDraw) {
+      console.error(`❌ CRITICAL: topNumbers has ${topNumbers.length}, need ${config.numbersPerDraw}`);
+      console.error(`   FrequencyData has ${frequencyData.length} items`);
+      
+      // Force pad from frequency data
+      for (let i = topNumbers.length; i < config.numbersPerDraw && i < frequencyData.length; i++) {
+        const nextNum = frequencyData[i].number;
+        if (!topNumbers.includes(nextNum)) {
+          topNumbers.push(nextNum);
+        }
+      }
+      
+      // If still not enough, generate random
+      let safetyCounter = 0;
+      while (topNumbers.length < config.numbersPerDraw && safetyCounter < 100) {
+        safetyCounter++;
+        const randomNum = Math.floor(Math.random() * config.maxNumber) + 1;
+        if (!topNumbers.includes(randomNum)) {
+          topNumbers.push(randomNum);
+        }
+      }
+      
+      topNumbers.sort((a, b) => a - b);
+      console.log(`✅ Forced to ${topNumbers.length} numbers:`, topNumbers);
+    }
+    
+    console.log(`🔢 Final topNumbers: [${topNumbers.join(', ')}]`);
+    console.log(`✅ Final count: ${topNumbers.length} (required: ${config.numbersPerDraw})`);
+    
+    // FINAL VERIFICATION
+    if (topNumbers.length !== config.numbersPerDraw) {
+      console.error(`❌❌❌ SENDING WRONG COUNT! ${topNumbers.length} instead of ${config.numbersPerDraw}`);
+    } else {
+      console.log(`✅✅✅ COUNT IS CORRECT!`);
+    }
+    
     console.log('═'.repeat(60));
     console.log('🤖 AUTOMATION REQUEST END');
     console.log('═'.repeat(60));
@@ -869,7 +883,7 @@ router.post('/:gameType/automation', async (req, res) => {
         timestamp: new Date().toISOString(),
         period,
         gameType,
-        analysisSource: frequency.totalDraws > 0 ? 'database' : 'random',
+        analysisSource: 'random',
         numberRange: {
           min: Math.min(...frequencyData.map(d => d.number)),
           max: Math.max(...frequencyData.map(d => d.number)),
