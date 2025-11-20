@@ -12,9 +12,6 @@ const mongoose = require('mongoose');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Import MongoDB models
-const db = require('./models_mongoose');
-
 // Import routes - CRITICAL: Include historicalResults!
 const predictionRoutes = require('./routes/predictions');
 const adminRoutes = require('./routes/admin');
@@ -27,644 +24,633 @@ const scraper539 = require('./services/scraper539');
 console.log('✅ 539 Scraper loaded:', !!scraper539.scrapeLatestResults);
 
 // ============================================
-// DATABASE CONNECTION
+// DATABASE CONNECTION - FIXED
 // ============================================
 let mongoUri = process.env.MONGODB_URI;
 if (!mongoUri.endsWith('/')) mongoUri += '/';
 mongoUri += process.env.MONGODB_DB;
 
-// Connect to MongoDB
-mongoose.connect(mongoUri)
-  .then(() => console.log('✅ MongoDB Atlas connected'))
-  .catch(err => {
-    console.error('❌ MongoDB connection error:', err);
-    process.exit(1);
-  });
+console.log('🔄 Connecting to MongoDB...');
 
-// ============================================
-// MIDDLEWARE
-// ============================================
-// ENHANCED CORS configuration for cross-domain requests
-const corsOptions = {
-  origin: function(origin, callback) {
-    // Allow all origins in development
-    if (process.env.NODE_ENV === 'development') {
-      return callback(null, true);
-    }
-    // Production origins
-    const allowedOrigins = [
-      'https://react-lottery-app-seven.vercel.app',
-      'https://lottery-app-2dvh.onrender.com'
-     
-    ];
-    
-    if (!origin) {
-      // Allow requests with no origin (like mobile apps or curl)
-      return callback(null, true);
-    }
-    if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
-      callback(null, true);  // ✅ FIXED: Pass true to allow the origin
-    } else {
-      console.warn(`⚠️ Blocked request from unauthorized origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'Set-Cookie'],
-  exposedHeaders: ['Set-Cookie'],
-  optionsSuccessStatus: 200,
-  maxAge: 86400
-};
-
-// COOP headers removed to allow Google OAuth popup communication
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // Handle preflight requests
-
-// Security headers
-app.use(helmet({ 
-  contentSecurityPolicy: false,
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
-
-// Compression
-app.use(compression());
-
-// Logging
-if (process.env.NODE_ENV === 'development') {
-  app.use(morgan('dev'));
-} else {
-  app.use(morgan('combined'));
-}
-
-// Body parsing
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Trust proxy (required for Render/Vercel)
-app.enable('trust proxy');
-app.set('trust proxy', 1);
-
-// CORS and security middleware
-app.use((req, res, next) => {
-  const origin = req.get('origin');
-  console.log(`🔥 ${req.method} ${req.path} from ${origin || 'no-origin'}`);
-  next();
-});
-
-// Session middleware with MongoDB store
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-secret-key-please-change-in-production',
-  store: MongoStore.create({
-    mongoUrl: mongoUri,
-    collectionName: 'sessions',
-    touchAfter: 24 * 3600, // Lazy session update (in seconds)
-    crypto: {
-      secret: process.env.SESSION_SECRET || 'your-secret-key-please-change-in-production'
-    }
-  }),
-  resave: false,
-  saveUninitialized: false,
-  proxy: true, // Trust the reverse proxy
-  name: process.env.SESSION_COOKIE_NAME || 'connect.sid', // ✅ Explicit cookie name
-  cookie: {
-    secure: true, // Always use secure cookies
-    httpOnly: true, // Prevent XSS attacks
-    sameSite: 'none', // Required for cross-origin
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    path: '/',
-    domain: undefined
-  }
-}));
-
-// Debug middleware for sessions (remove in production)
-if (process.env.NODE_ENV === 'development') {
-  app.use((req, res, next) => {
-    console.log('🔐 Session Debug:', {
-      sessionID: req.sessionID,
-      hasSession: !!req.session,
-      userId: req.session?.userId,
-      user: req.session?.user?.username
+// Connect to MongoDB and WAIT for it to be ready
+async function connectDatabase() {
+  try {
+    await mongoose.connect(mongoUri, {
+      // These options help with connection stability
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
     });
-    next();
-  });
+    console.log('✅ MongoDB Atlas connected successfully');
+    return true;
+  } catch (err) {
+    console.error('❌ MongoDB connection error:', err);
+    throw err;
+  }
 }
 
 // ============================================
-// ROUTES - CRITICAL ORDER FIX
+// MIDDLEWARE SETUP FUNCTION (called AFTER DB connects)
 // ============================================
-// API routes - ORDER MATTERS!
-app.use('/api/auth', authRoutes);
-app.use('/api/predictions', predictionRoutes);
-
-// CRITICAL: Load historicalResults BEFORE admin routes
-app.use('/api/admin', historicalResultsRoutes);
-console.log('✅ Historical Results routes loaded - handles /api/admin/historical-results/539/*');
-
-// Admin routes MUST come AFTER historicalResults
-app.use('/api/admin', adminRoutes);
-console.log('✅ Admin routes loaded - conflicting POST route should be commented out');
-
-// Scheduler routes for web scraping
-app.use('/api/admin', schedulerRoutes);
-console.log('✅ Scheduler routes loaded - handles /api/admin/scheduler/*');
-
-// ============================================
-// MAGAYO API TESTING
-// ============================================
-
-app.get('/api/admin/magayo/test', async (req, res) => {
-  console.log('\n🧪 MAGAYO API TEST START');
-  console.log('═'.repeat(60));
-  
-  const testResults = {
-    timestamp: new Date().toISOString(),
-    tests: {},
-    summary: {}
+function setupMiddleware() {
+  // ENHANCED CORS configuration for cross-domain requests
+  const corsOptions = {
+    origin: function(origin, callback) {
+      // Allow all origins in development
+      if (process.env.NODE_ENV === 'development') {
+        return callback(null, true);
+      }
+      // Production origins
+      const allowedOrigins = [
+        'https://react-lottery-app-seven.vercel.app',
+        'https://lottery-app-2dvh.onrender.com'
+      ];
+      
+      if (!origin) {
+        // Allow requests with no origin (like mobile apps or curl)
+        return callback(null, true);
+      }
+      if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+        callback(null, true);
+      } else {
+        console.warn(`⚠️ Blocked request from unauthorized origin: ${origin}`);
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'Set-Cookie'],
+    exposedHeaders: ['Set-Cookie'],
+    optionsSuccessStatus: 200,
+    maxAge: 86400
   };
 
-  try {
-    const axios = require('axios');
-    const apiUrl = process.env.MAGAYO_API_URL || 'https://www.magayo.com/api/tickets.php';
-    const apiKey = process.env.MAGAYO_API_KEY;
+  app.use(cors(corsOptions));
+  app.options('*', cors(corsOptions));
 
-    const GAME_CODE_MAP = {
-      '539': 'tw_dailycash539',
-      'mark6': 'hk_mark6',
-      'lotto649': 'tw_lotto649'
-    };
+  // Security headers
+  app.use(helmet({ 
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" }
+  }));
 
-    // Test 1: Environment Variables
-    console.log('\n📋 TEST 1: Environment Variables');
-    testResults.tests.envVariables = {
-      apiUrl: apiUrl,
-      hasApiKey: !!apiKey,
-      apiKeyLength: apiKey ? apiKey.length : 0,
-      status: apiKey ? 'PASSED' : 'FAILED'
-    };
-    
-    if (apiKey) {
-      console.log('✅ API URL:', apiUrl);
-      console.log('✅ API Key found (length:', apiKey.length, ')');
-    } else {
-      console.log('❌ MAGAYO_API_KEY is not set');
+  // Compression
+  app.use(compression());
+
+  // Logging
+  if (process.env.NODE_ENV === 'development') {
+    app.use(morgan('dev'));
+  } else {
+    app.use(morgan('combined'));
+  }
+
+  // Body parsing
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+  // Trust proxy (required for Render/Vercel)
+  app.enable('trust proxy');
+  app.set('trust proxy', 1);
+
+  // CORS and security middleware
+  app.use((req, res, next) => {
+    const origin = req.get('origin');
+    console.log(`🔥 ${req.method} ${req.path} from ${origin || 'no-origin'}`);
+    next();
+  });
+
+  // ============================================
+  // SESSION MIDDLEWARE - FIXED TO USE EXISTING CONNECTION
+  // ============================================
+  console.log('🔐 Setting up session store with existing Mongoose connection...');
+  
+  app.use(session({
+    secret: process.env.SESSION_SECRET || 'your-secret-key-please-change-in-production',
+    store: MongoStore.create({
+      client: mongoose.connection.getClient(), // ✅ USE EXISTING CONNECTION
+      dbName: process.env.MONGODB_DB,
+      collectionName: 'sessions',
+      touchAfter: 24 * 3600,
+      stringify: false, // ✅ Better handling of session data
+      autoRemove: 'native', // ✅ Let MongoDB handle expired sessions
+      crypto: {
+        secret: process.env.SESSION_SECRET || 'your-secret-key-please-change-in-production'
+      }
+    }),
+    resave: false,
+    saveUninitialized: false,
+    proxy: true,
+    name: process.env.SESSION_COOKIE_NAME || 'connect.sid',
+    cookie: {
+      secure: true,
+      httpOnly: true,
+      sameSite: 'none',
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      path: '/',
+      domain: undefined
     }
+  }));
 
-    // Test 2: API Connectivity
-    console.log('\n🌐 TEST 2: API Connectivity');
-    try {
-      const startTime = Date.now();
-      const testUrl = `${apiUrl}?api_key=${apiKey}&game=tw_dailycash539&tickets=1`;
-      console.log('Testing URL:', testUrl.replace(apiKey, 'YOUR_API_KEY'));
-      
-      const response = await axios.get(testUrl, { timeout: 5000 });
-      const responseTime = Date.now() - startTime;
-      
-      console.log('✅ Connected successfully');
-      console.log('⏱️  Response time:', responseTime, 'ms');
-      console.log('📊 Response status:', response.status);
-      
-      testResults.tests.connectivity = {
-        status: 'PASSED',
-        responseTime: responseTime,
-        httpStatus: response.status
-      };
-    } catch (error) {
-      console.log('❌ Connection failed:', error.message);
-      testResults.tests.connectivity = {
-        status: 'FAILED',
-        error: error.message
-      };
-    }
+  console.log('✅ Session middleware configured successfully');
 
-    // Test 3: Game Code Mapping
-    console.log('\n🎮 TEST 3: Game Code Mapping');
-    testResults.tests.gameCodeMapping = {
-      ...GAME_CODE_MAP,
-      status: 'PASSED'
-    };
-    console.log('✅ Game codes configured:');
-    Object.entries(GAME_CODE_MAP).forEach(([game, code]) => {
-      console.log(`   - ${game}: ${code}`);
+  // Debug middleware for sessions
+  if (process.env.NODE_ENV === 'development') {
+    app.use((req, res, next) => {
+      console.log('🔐 Session Debug:', {
+        sessionID: req.sessionID,
+        hasSession: !!req.session,
+        userId: req.session?.userId,
+        user: req.session?.user?.username
+      });
+      next();
     });
+  }
+}
 
-    // Test 4: Prediction Request
-    console.log('\n🎯 TEST 4: Magayo Prediction Request (539)');
-    try {
-      const gameType = '539';
-      const magayoGameCode = GAME_CODE_MAP[gameType];
-      
-      const predictionUrl = `${apiUrl}?api_key=${apiKey}&game=${magayoGameCode}&tickets=1`;
-      console.log('Requesting prediction for:', gameType);
-      
-      const startTime = Date.now();
-      const response = await axios.get(predictionUrl, { timeout: 5000 });
-      const responseTime = Date.now() - startTime;
-      
-      if (response.data.error && response.data.error > 0) {
-        throw new Error(`API error code: ${response.data.error}`);
-      }
-      
-      if (response.data && response.data.tickets && response.data.tickets.length > 0) {
-        const ticket = response.data.tickets[0].ticket;
-        console.log('✅ Prediction received successfully');
-        console.log('🎫 Ticket:', ticket);
-        console.log('⏱️  Response time:', responseTime, 'ms');
-        
-        // Parse the ticket
-        const parts = ticket.split(',');
-        const numbers = [];
-        let bonus = null;
-        
-        parts.forEach(part => {
-          if (part.startsWith('+')) {
-            bonus = parseInt(part.substring(1));
-          } else {
-            numbers.push(parseInt(part));
-          }
-        });
-        
-        console.log('🔢 Numbers:', numbers.sort((a, b) => a - b));
-        if (bonus) console.log('🎁 Bonus:', bonus);
-        
-        testResults.tests.predictionRequest = {
-          status: 'PASSED',
-          gameType: gameType,
-          numbers: numbers.sort((a, b) => a - b),
-          bonus: bonus,
-          responseTime: responseTime,
-          rawTicket: ticket
-        };
-      } else {
-        throw new Error('Invalid response format');
-      }
-    } catch (error) {
-      console.log('❌ Prediction request failed:', error.message);
-      testResults.tests.predictionRequest = {
-        status: 'FAILED',
-        error: error.message
-      };
-    }
+// ============================================
+// ROUTES SETUP FUNCTION
+// ============================================
+function setupRoutes() {
+  const db = require('./models_mongoose');
+  
+  // API routes - ORDER MATTERS!
+  app.use('/api/auth', authRoutes);
+  app.use('/api/predictions', predictionRoutes);
 
-    // Test 5: All Game Types
-    console.log('\n🎮 TEST 5: Testing All Game Types');
-    const gameTests = {};
+  // CRITICAL: Load historicalResults BEFORE admin routes
+  app.use('/api/admin', historicalResultsRoutes);
+  console.log('✅ Historical Results routes loaded');
+
+  // Admin routes MUST come AFTER historicalResults
+  app.use('/api/admin', adminRoutes);
+  console.log('✅ Admin routes loaded');
+
+  // Scheduler routes
+  app.use('/api/admin', schedulerRoutes);
+  console.log('✅ Scheduler routes loaded');
+
+  // ============================================
+  // MAGAYO API TESTING
+  // ============================================
+  app.get('/api/admin/magayo/test', async (req, res) => {
+    console.log('\n🧪 MAGAYO API TEST START');
+    console.log('═'.repeat(60));
     
-    for (const [gameType, magayoCode] of Object.entries(GAME_CODE_MAP)) {
+    const testResults = {
+      timestamp: new Date().toISOString(),
+      tests: {},
+      summary: {}
+    };
+
+    try {
+      const axios = require('axios');
+      const apiUrl = process.env.MAGAYO_API_URL || 'https://www.magayo.com/api/tickets.php';
+      const apiKey = process.env.MAGAYO_API_KEY;
+
+      const GAME_CODE_MAP = {
+        '539': 'tw_dailycash539',
+        'mark6': 'hk_mark6',
+        'lotto649': 'tw_lotto649'
+      };
+
+      // Test 1: Environment Variables
+      console.log('\n📋 TEST 1: Environment Variables');
+      testResults.tests.envVariables = {
+        apiUrl: apiUrl,
+        hasApiKey: !!apiKey,
+        apiKeyLength: apiKey ? apiKey.length : 0,
+        status: apiKey ? 'PASSED' : 'FAILED'
+      };
+      
+      if (apiKey) {
+        console.log('✅ API URL:', apiUrl);
+        console.log('✅ API Key found (length:', apiKey.length, ')');
+      } else {
+        console.log('❌ MAGAYO_API_KEY is not set');
+      }
+
+      // Test 2: API Connectivity
+      console.log('\n🌐 TEST 2: API Connectivity');
       try {
-        console.log(`\n   Testing ${gameType} (${magayoCode})...`);
-        
-        const testUrl = `${apiUrl}?api_key=${apiKey}&game=${magayoCode}&tickets=1`;
         const startTime = Date.now();
+        const testUrl = `${apiUrl}?api_key=${apiKey}&game=tw_dailycash539&tickets=1`;
+        console.log('Testing URL:', testUrl.replace(apiKey, 'YOUR_API_KEY'));
+        
         const response = await axios.get(testUrl, { timeout: 5000 });
         const responseTime = Date.now() - startTime;
         
-        if (response.data.error === 0 || !response.data.error) {
-          console.log(`   ✅ ${gameType} working (${responseTime}ms)`);
-          gameTests[gameType] = {
-            status: 'PASSED',
-            responseTime: responseTime
-          };
-        } else {
-          console.log(`   ❌ ${gameType} returned error: ${response.data.error}`);
-          gameTests[gameType] = {
-            status: 'FAILED',
-            errorCode: response.data.error
-          };
-        }
+        console.log('✅ Connected successfully');
+        console.log('⏱️  Response time:', responseTime, 'ms');
+        console.log('📊 Response status:', response.status);
+        
+        testResults.tests.connectivity = {
+          status: 'PASSED',
+          responseTime: responseTime,
+          httpStatus: response.status
+        };
       } catch (error) {
-        console.log(`   ❌ ${gameType} error: ${error.message}`);
-        gameTests[gameType] = {
+        console.log('❌ Connection failed:', error.message);
+        testResults.tests.connectivity = {
           status: 'FAILED',
           error: error.message
         };
       }
-    }
-    
-    testResults.tests.allGameTypes = gameTests;
 
-    // Summary
-    console.log('\n');
-    console.log('═'.repeat(60));
-    console.log('📊 TEST SUMMARY');
-    console.log('═'.repeat(60));
-    
-    const passedTests = Object.values(testResults.tests)
-      .filter(test => test.status === 'PASSED').length;
-    const totalTests = Object.keys(testResults.tests).length;
-    
-    console.log(`✅ Passed: ${passedTests}/${totalTests}`);
-    
-    Object.entries(testResults.tests).forEach(([testName, result]) => {
-      const icon = result.status === 'PASSED' ? '✅' : '❌';
-      console.log(`${icon} ${testName}: ${result.status}`);
-    });
-    
-    testResults.summary = {
-      totalTests: totalTests,
-      passedTests: passedTests,
-      failedTests: totalTests - passedTests,
-      allTestsPassed: passedTests === totalTests
-    };
-    
-    console.log('');
-    console.log('═'.repeat(60));
-    console.log('🧪 MAGAYO API TEST END');
-    console.log('═'.repeat(60));
-    console.log('');
-
-    res.json({
-      success: true,
-      ...testResults
-    });
-
-  } catch (error) {
-    console.error('💥 Test error:', error);
-    testResults.summary = {
-      status: 'FATAL_ERROR',
-      error: error.message
-    };
-    
-    res.status(500).json({
-      success: false,
-      ...testResults
-    });
-  }
-});
-
-app.get('/api/admin/magayo/quick-test', async (req, res) => {
-  try {
-    const axios = require('axios');
-    const apiUrl = process.env.MAGAYO_API_URL || 'https://www.magayo.com/api/tickets.php';
-    const apiKey = process.env.MAGAYO_API_KEY;
-    
-    if (!apiKey) {
-      return res.status(400).json({
-        success: false,
-        error: 'MAGAYO_API_KEY not configured'
+      // Test 3: Game Code Mapping
+      console.log('\n🎮 TEST 3: Game Code Mapping');
+      testResults.tests.gameCodeMapping = {
+        ...GAME_CODE_MAP,
+        status: 'PASSED'
+      };
+      console.log('✅ Game codes configured:');
+      Object.entries(GAME_CODE_MAP).forEach(([game, code]) => {
+        console.log(`   - ${game}: ${code}`);
       });
-    }
-    
-    const testUrl = `${apiUrl}?api_key=${apiKey}&game=tw_dailycash539&tickets=1`;
-    const response = await axios.get(testUrl, { timeout: 5000 });
-    
-    if (response.data.tickets && response.data.tickets.length > 0) {
+
+      // Test 4: Prediction Request
+      console.log('\n🎯 TEST 4: Magayo Prediction Request (539)');
+      try {
+        const gameType = '539';
+        const magayoGameCode = GAME_CODE_MAP[gameType];
+        
+        const predictionUrl = `${apiUrl}?api_key=${apiKey}&game=${magayoGameCode}&tickets=1`;
+        console.log('Requesting prediction for:', gameType);
+        
+        const startTime = Date.now();
+        const response = await axios.get(predictionUrl, { timeout: 5000 });
+        const responseTime = Date.now() - startTime;
+        
+        if (response.data.error && response.data.error > 0) {
+          throw new Error(`API error code: ${response.data.error}`);
+        }
+        
+        if (response.data && response.data.tickets && response.data.tickets.length > 0) {
+          const ticket = response.data.tickets[0].ticket;
+          console.log('✅ Prediction received successfully');
+          console.log('🎫 Ticket:', ticket);
+          console.log('⏱️  Response time:', responseTime, 'ms');
+          
+          const parts = ticket.split(',');
+          const numbers = [];
+          let bonus = null;
+          
+          parts.forEach(part => {
+            if (part.startsWith('+')) {
+              bonus = parseInt(part.substring(1));
+            } else {
+              numbers.push(parseInt(part));
+            }
+          });
+          
+          console.log('🔢 Numbers:', numbers.sort((a, b) => a - b));
+          if (bonus) console.log('🎁 Bonus:', bonus);
+          
+          testResults.tests.predictionRequest = {
+            status: 'PASSED',
+            gameType: gameType,
+            numbers: numbers.sort((a, b) => a - b),
+            bonus: bonus,
+            responseTime: responseTime,
+            rawTicket: ticket
+          };
+        } else {
+          throw new Error('Invalid response format');
+        }
+      } catch (error) {
+        console.log('❌ Prediction request failed:', error.message);
+        testResults.tests.predictionRequest = {
+          status: 'FAILED',
+          error: error.message
+        };
+      }
+
+      // Test 5: All Game Types
+      console.log('\n🎮 TEST 5: Testing All Game Types');
+      const gameTests = {};
+      
+      for (const [gameType, magayoCode] of Object.entries(GAME_CODE_MAP)) {
+        try {
+          console.log(`\n   Testing ${gameType} (${magayoCode})...`);
+          
+          const testUrl = `${apiUrl}?api_key=${apiKey}&game=${magayoCode}&tickets=1`;
+          const startTime = Date.now();
+          const response = await axios.get(testUrl, { timeout: 5000 });
+          const responseTime = Date.now() - startTime;
+          
+          if (response.data.error === 0 || !response.data.error) {
+            console.log(`   ✅ ${gameType} working (${responseTime}ms)`);
+            gameTests[gameType] = {
+              status: 'PASSED',
+              responseTime: responseTime
+            };
+          } else {
+            console.log(`   ❌ ${gameType} returned error: ${response.data.error}`);
+            gameTests[gameType] = {
+              status: 'FAILED',
+              errorCode: response.data.error
+            };
+          }
+        } catch (error) {
+          console.log(`   ❌ ${gameType} error: ${error.message}`);
+          gameTests[gameType] = {
+            status: 'FAILED',
+            error: error.message
+          };
+        }
+      }
+      
+      testResults.tests.allGameTypes = gameTests;
+
+      // Summary
+      console.log('\n');
+      console.log('═'.repeat(60));
+      console.log('📊 TEST SUMMARY');
+      console.log('═'.repeat(60));
+      
+      const passedTests = Object.values(testResults.tests)
+        .filter(test => test.status === 'PASSED').length;
+      const totalTests = Object.keys(testResults.tests).length;
+      
+      console.log(`✅ Passed: ${passedTests}/${totalTests}`);
+      
+      Object.entries(testResults.tests).forEach(([testName, result]) => {
+        const icon = result.status === 'PASSED' ? '✅' : '❌';
+        console.log(`${icon} ${testName}: ${result.status}`);
+      });
+      
+      testResults.summary = {
+        totalTests: totalTests,
+        passedTests: passedTests,
+        failedTests: totalTests - passedTests,
+        allTestsPassed: passedTests === totalTests
+      };
+      
+      console.log('');
+      console.log('═'.repeat(60));
+      console.log('🧪 MAGAYO API TEST END');
+      console.log('═'.repeat(60));
+      console.log('');
+
       res.json({
         success: true,
-        status: 'API_WORKING',
-        ticket: response.data.tickets[0].ticket
+        ...testResults
       });
-    } else {
-      res.json({
+
+    } catch (error) {
+      console.error('💥 Test error:', error);
+      testResults.summary = {
+        status: 'FATAL_ERROR',
+        error: error.message
+      };
+      
+      res.status(500).json({
         success: false,
-        status: 'NO_DATA',
-        response: response.data
+        ...testResults
       });
     }
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      status: 'API_ERROR',
-      error: error.message
-    });
-  }
-});
-
-// ============================================
-// DEBUG ROUTES
-// ============================================
-// Debug route to verify historicalResults routes are loaded
-app.get('/api/admin/test-historical', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Historical routes are properly loaded',
-    expectedRoutes: [
-      'GET /api/admin/historical-results/539',
-      'POST /api/admin/historical-results/539/add',
-      'DELETE /api/admin/historical-results/539/:id',
-      'POST /api/admin/historical-results/539/sync',
-      'GET /api/admin/historical-results/539/status'
-    ],
-    note: 'These routes should now be accessible'
   });
-});
 
-// Health check endpoint with detailed info
-app.get('/api/health', async (req, res) => {
-  try {
-    const dbState = mongoose.connection.readyState;
-    const states = {
-      0: 'disconnected',
-      1: 'connected',
-      2: 'connecting',
-      3: 'disconnecting'
-    };
-    
-    // Get collection stats
-    const collections = await mongoose.connection.db.listCollections().toArray();
-    
-    // Get document counts
-    const stats = {};
-    for (const collection of ['users', 'lottery_results', 'predictions', 'sessions', 'admin_logs']) {
-      try {
-        stats[collection] = await mongoose.connection.db.collection(collection).countDocuments();
-      } catch (err) {
-        stats[collection] = 0;
+  app.get('/api/admin/magayo/quick-test', async (req, res) => {
+    try {
+      const axios = require('axios');
+      const apiUrl = process.env.MAGAYO_API_URL || 'https://www.magayo.com/api/tickets.php';
+      const apiKey = process.env.MAGAYO_API_KEY;
+      
+      if (!apiKey) {
+        return res.status(400).json({
+          success: false,
+          error: 'MAGAYO_API_KEY not configured'
+        });
       }
+      
+      const testUrl = `${apiUrl}?api_key=${apiKey}&game=tw_dailycash539&tickets=1`;
+      const response = await axios.get(testUrl, { timeout: 5000 });
+      
+      if (response.data.tickets && response.data.tickets.length > 0) {
+        res.json({
+          success: true,
+          status: 'API_WORKING',
+          ticket: response.data.tickets[0].ticket
+        });
+      } else {
+        res.json({
+          success: false,
+          status: 'NO_DATA',
+          response: response.data
+        });
+      }
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        status: 'API_ERROR',
+        error: error.message
+      });
     }
-    
+  });
+
+  // ============================================
+  // DEBUG ROUTES
+  // ============================================
+  app.get('/api/admin/test-historical', (req, res) => {
     res.json({
-      status: 'healthy',
-      database: states[dbState],
-      dbName: mongoose.connection.name,
-      collections: collections.length,
-      documents: stats,
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      version: '2.0.0',
-      environment: process.env.NODE_ENV || 'development',
-      cors: {
-        origin: req.get('origin') || 'no-origin',
-        credentials: true
-      },
-      routes: {
-        historicalResultsLoaded: true,
-        adminLoaded: true,
-        magayoTestingLoaded: true,
-        order: 'historicalResults BEFORE admin (correct)'
+      success: true,
+      message: 'Historical routes are properly loaded',
+      expectedRoutes: [
+        'GET /api/admin/historical-results/539',
+        'POST /api/admin/historical-results/539/add',
+        'DELETE /api/admin/historical-results/539/:id',
+        'POST /api/admin/historical-results/539/sync',
+        'GET /api/admin/historical-results/539/status'
+      ]
+    });
+  });
+
+  // Health check endpoint
+  app.get('/api/health', async (req, res) => {
+    try {
+      const dbState = mongoose.connection.readyState;
+      const states = {
+        0: 'disconnected',
+        1: 'connected',
+        2: 'connecting',
+        3: 'disconnecting'
+      };
+      
+      const collections = await mongoose.connection.db.listCollections().toArray();
+      
+      const stats = {};
+      for (const collection of ['users', 'lottery_results', 'predictions', 'sessions', 'admin_logs']) {
+        try {
+          stats[collection] = await mongoose.connection.db.collection(collection).countDocuments();
+        } catch (err) {
+          stats[collection] = 0;
+        }
+      }
+      
+      res.json({
+        status: 'healthy',
+        database: states[dbState],
+        dbName: mongoose.connection.name,
+        collections: collections.length,
+        documents: stats,
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        version: '2.0.1',
+        environment: process.env.NODE_ENV || 'development',
+        sessionStore: 'MongoDB (using existing connection)'
+      });
+    } catch (error) {
+      res.status(500).json({
+        status: 'unhealthy',
+        database: 'error',
+        error: error.message
+      });
+    }
+  });
+
+  // API info endpoint
+  app.get('/api', (req, res) => {
+    res.json({
+      name: 'Lottery Prediction API',
+      version: '2.0.1',
+      database: 'MongoDB Atlas',
+      sessionStore: 'MongoDB (shared connection)',
+      endpoints: {
+        auth: {
+          login: 'POST /api/auth/login',
+          logout: 'POST /api/auth/logout',
+          verify: 'GET /api/auth/verify',
+          register: 'POST /api/auth/register'
+        },
+        predictions: {
+          predict: 'POST /api/predictions/:gameType',
+          automation: 'POST /api/predictions/:gameType/automation',
+          allPastResults: 'GET /api/predictions/all-past-results/:gameType'
+        },
+        admin: {
+          historicalResults: 'GET /api/admin/historical-results/:gameType',
+          addResult: 'POST /api/admin/historical-results/:gameType/add',
+          deleteResult: 'DELETE /api/admin/historical-results/:gameType/:id',
+          syncExcel: 'POST /api/admin/historical-results/:gameType/sync',
+          schedulerStatus: 'GET /api/admin/scheduler/status/:gameType',
+          triggerScrape: 'POST /api/admin/scheduler/trigger/:gameType'
+        },
+        health: 'GET /api/health'
       }
     });
-  } catch (error) {
-    res.status(500).json({
-      status: 'unhealthy',
-      database: 'error',
-      error: error.message
-    });
-  }
-});
+  });
 
-// API info endpoint
-app.get('/api', (req, res) => {
-  res.json({
-    name: 'Lottery Prediction API',
-    version: '2.0.0',
-    database: 'MongoDB Atlas',
-    endpoints: {
-      auth: {
-        login: 'POST /api/auth/login',
-        logout: 'POST /api/auth/logout',
-        verify: 'GET /api/auth/verify',
-        register: 'POST /api/auth/register'
-      },
-      predictions: {
-        predict: 'POST /api/predictions/:gameType',
-        automation: 'POST /api/predictions/:gameType/automation',
-        allPastResults: 'GET /api/predictions/all-past-results/:gameType'
-      },
-      admin: {
-        historicalResults: 'GET /api/admin/historical-results/:gameType',
-        addResult: 'POST /api/admin/historical-results/:gameType/add',
-        deleteResult: 'DELETE /api/admin/historical-results/:gameType/:id',
-        syncExcel: 'POST /api/admin/historical-results/:gameType/sync',
-        schedulerStatus: 'GET /api/admin/scheduler/status/:gameType',
-        triggerScrape: 'POST /api/admin/scheduler/trigger/:gameType'
-      },
-      magayoTesting: {
-        fullTest: 'GET /api/admin/magayo/test',
-        quickTest: 'GET /api/admin/magayo/quick-test'
-      },
-      health: 'GET /api/health'
+  // Test endpoint for lottery results
+  app.get('/api/lottery-results/latest', async (req, res) => {
+    try {
+      const games = ['539', 'mark6', 'lotto649'];
+      const results = {};
+      
+      for (const game of games) {
+        results[game] = await db.LotteryResult
+          .findOne({ gameType: game })
+          .sort({ drawDate: -1 })
+          .lean();
+      }
+      
+      res.json({ success: true, data: results });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
     }
   });
-});
 
-// Test endpoint for lottery results
-app.get('/api/lottery-results/latest', async (req, res) => {
-  try {
-    const games = ['539', 'mark6', 'lotto649'];
-    const results = {};
-    
-    for (const game of games) {
-      results[game] = await db.LotteryResult
-        .findOne({ gameType: game })
-        .sort({ drawDate: -1 })
-        .lean();
+  // Test CORS endpoint
+  app.get('/api/test-cors', (req, res) => {
+    res.json({
+      success: true,
+      message: 'CORS is working!',
+      origin: req.get('origin') || 'no-origin'
+    });
+  });
+
+  // ============================================
+  // ERROR HANDLING
+  // ============================================
+  app.use('*', (req, res) => {
+    if (req.originalUrl.includes('historical-results')) {
+      console.error('❌ 404 for historical-results route:', req.method, req.originalUrl);
     }
     
-    res.json({ success: true, data: results });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+    res.status(404).json({ 
+      error: 'Endpoint not found',
+      path: req.originalUrl,
+      method: req.method
+    });
+  });
 
-// Test CORS endpoint
-app.get('/api/test-cors', (req, res) => {
-  res.json({
-    success: true,
-    message: 'CORS is working!',
-    origin: req.get('origin') || 'no-origin',
-    headers: {
-      'access-control-allow-origin': res.get('access-control-allow-origin'),
-      'access-control-allow-credentials': res.get('access-control-allow-credentials')
+  app.use((err, req, res, next) => {
+    console.error('💥 Error:', err.stack);
+    
+    if (err.message === 'Not allowed by CORS') {
+      return res.status(403).json({
+        error: 'CORS error',
+        message: 'Origin not allowed',
+        origin: req.get('origin')
+      });
     }
+    
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({
+        error: 'Validation error',
+        details: Object.values(err.errors).map(e => ({ 
+          field: e.path, 
+          message: e.message 
+        }))
+      });
+    }
+    
+    if (err.code === 11000) {
+      const field = Object.keys(err.keyPattern)[0];
+      return res.status(409).json({
+        error: 'Duplicate entry',
+        field: field,
+        message: `${field} already exists`
+      });
+    }
+    
+    res.status(err.status || 500).json({
+      error: 'Something went wrong!',
+      message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
   });
-});
+}
 
 // ============================================
-// ERROR HANDLING
-// ============================================
-// 404 handler
-app.use('*', (req, res) => {
-  // Special logging for historical-results 404s
-  if (req.originalUrl.includes('historical-results')) {
-    console.error('❌ 404 for historical-results route:', req.method, req.originalUrl);
-    console.error('   This means the route is not properly registered');
-  } else if (process.env.NODE_ENV === 'development') {
-    console.log(`❌ 404 Not Found: ${req.method} ${req.originalUrl}`);
-  }
-  
-  res.status(404).json({ 
-    error: 'Endpoint not found',
-    path: req.originalUrl,
-    method: req.method,
-    message: 'The requested API endpoint does not exist'
-  });
-});
-
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error('💥 Error:', err.stack);
-  
-  // Handle CORS errors
-  if (err.message === 'Not allowed by CORS') {
-    return res.status(403).json({
-      error: 'CORS error',
-      message: 'Origin not allowed',
-      origin: req.get('origin')
-    });
-  }
-  
-  // Handle specific MongoDB error types
-  if (err.name === 'ValidationError') {
-    return res.status(400).json({
-      error: 'Validation error',
-      details: Object.values(err.errors).map(e => ({ 
-        field: e.path, 
-        message: e.message 
-      }))
-    });
-  }
-  
-  if (err.code === 11000) { // MongoDB duplicate key error
-    const field = Object.keys(err.keyPattern)[0];
-    return res.status(409).json({
-      error: 'Duplicate entry',
-      field: field,
-      message: `${field} already exists`
-    });
-  }
-  
-  res.status(err.status || 500).json({
-    error: 'Something went wrong!',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
-    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
-  });
-});
-
-// ============================================
-// SERVER START
+// SERVER START - FIXED INITIALIZATION ORDER
 // ============================================
 async function startServer() {
   try {
-    // Wait for database connection
-    await db.connectDB();
+    console.log('🚀 Starting server initialization...');
     
-    // Start server
+    // STEP 1: Connect to database FIRST
+    await connectDatabase();
+    
+    // STEP 2: Setup middleware (including sessions) AFTER DB is connected
+    setupMiddleware();
+    
+    // STEP 3: Setup routes
+    setupRoutes();
+    
+    // STEP 4: Start listening
     app.listen(PORT, () => {
       console.log('=====================================');
       console.log(`🚀 Backend server running on port ${PORT}`);
-      console.log(`📊 API available at http://localhost:${PORT}/api`);
-      console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
+      console.log(`📊 API: http://localhost:${PORT}/api`);
+      console.log(`🏥 Health: http://localhost:${PORT}/api/health`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`☁️  Database: MongoDB Atlas - ${process.env.MONGODB_DB}`);
-      console.log(`🔐 Session store: MongoDB`);
-      console.log(`📝 CORS: Enabled for Vercel apps + configured origins`);
+      console.log(`☁️  Database: MongoDB Atlas`);
+      console.log(`🔐 Session store: MongoDB (shared connection) ✅`);
+      console.log(`📝 CORS: Enabled`);
       console.log('=====================================');
-      console.log('📁 ROUTE LOADING ORDER (CRITICAL):');
-      console.log('   1. Auth routes');
-      console.log('   2. Predictions routes');
-      console.log('   3. Historical Results routes (FIRST for /admin)');
-      console.log('   4. Admin routes (SECOND for /admin)');
-      console.log('   5. Scheduler routes');
-      console.log('   ✅ This ensures 539 routes work correctly');
-      console.log('=====================================');
-      console.log('🧪 MAGAYO TESTING ENDPOINTS:');
-      console.log('   - Full test: GET /api/admin/magayo/test');
-      console.log('   - Quick test: GET /api/admin/magayo/quick-test');
+      console.log('✅ All systems operational!');
       console.log('=====================================');
     });
   } catch (error) {
-    console.error('❌ Unable to start server:', error);
+    console.error('❌ Failed to start server:', error);
     process.exit(1);
   }
 }
