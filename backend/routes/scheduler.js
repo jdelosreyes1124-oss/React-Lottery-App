@@ -4,10 +4,6 @@ const scheduledScraper = require('../services/scheduledScraper');
 
 // GET /api/admin/scheduler/status/:gameType
 router.get('/scheduler/status/:gameType', async (req, res) => {
-  // Rely on global CORS middleware. Do not set wildcard origin here because
-  // the frontend uses credentials: 'include' and the Access-Control-Allow-Origin
-  // header must be a specific origin in that case.
-
   try {
     const { gameType } = req.params;
     
@@ -19,6 +15,7 @@ router.get('/scheduler/status/:gameType', async (req, res) => {
     }
 
     const status = scheduledScraper.getStatus(gameType);
+    
     res.json({
       success: true,
       status: status,
@@ -38,16 +35,53 @@ router.get('/scheduler/status/:gameType', async (req, res) => {
 router.post('/scheduler/trigger/:gameType', async (req, res) => {
   try {
     const { gameType } = req.params;
-    await scheduledScraper.triggerScrape(gameType);
-    res.json({
-      success: true,
-      message: `Scraper triggered for ${gameType}`
+    
+    if (!gameType) {
+      return res.status(400).json({
+        success: false,
+        error: 'Game type is required'
+      });
+    }
+    
+    console.log(`[SCHEDULER] Manual trigger requested for ${gameType}`);
+    
+    // Trigger the scrape
+    const result = await scheduledScraper.triggerScrape(gameType);
+    
+    // The result object now contains detailed information
+    console.log(`[SCHEDULER] Scrape completed for ${gameType}:`, {
+      status: result.status,
+      added: result.added,
+      total: result.total
     });
+    
+    // Return comprehensive response
+    res.json({
+      success: result.success !== false, // Handle both true and 'up-to-date' status
+      status: result.status,
+      message: result.message || `Scraper completed for ${gameType}`,
+      data: {
+        added: result.added || 0,
+        skipped: result.skipped || 0,
+        failed: result.failed || 0,
+        total: result.total || 0,
+        scraped: result.scraped || 0,
+        upToDate: result.upToDate || false
+      },
+      errors: result.errors || [],
+      timestamp: new Date().toISOString()
+    });
+    
   } catch (error) {
     console.error('[SCHEDULER] Trigger error:', error);
+    
+    // Return error with proper structure
     res.status(500).json({
       success: false,
-      error: error.message
+      status: 'error',
+      message: error.message || 'An error occurred while scraping',
+      error: error.message,
+      timestamp: new Date().toISOString()
     });
   }
 });
@@ -56,16 +90,27 @@ router.post('/scheduler/trigger/:gameType', async (req, res) => {
 router.post('/scheduler/enable/:gameType', async (req, res) => {
   try {
     const { gameType } = req.params;
+    
+    if (!gameType) {
+      return res.status(400).json({
+        success: false,
+        error: 'Game type is required'
+      });
+    }
+    
     scheduledScraper.enableScheduler(gameType);
+    
     res.json({
       success: true,
-      message: `Scheduler enabled for ${gameType}`
+      message: `Scheduler enabled for ${gameType}`,
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
     console.error('[SCHEDULER] Enable error:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
+      timestamp: new Date().toISOString()
     });
   }
 });
@@ -74,16 +119,27 @@ router.post('/scheduler/enable/:gameType', async (req, res) => {
 router.post('/scheduler/disable/:gameType', async (req, res) => {
   try {
     const { gameType } = req.params;
+    
+    if (!gameType) {
+      return res.status(400).json({
+        success: false,
+        error: 'Game type is required'
+      });
+    }
+    
     scheduledScraper.disableScheduler(gameType);
+    
     res.json({
       success: true,
-      message: `Scheduler disabled for ${gameType}`
+      message: `Scheduler disabled for ${gameType}`,
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
     console.error('[SCHEDULER] Disable error:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
+      timestamp: new Date().toISOString()
     });
   }
 });

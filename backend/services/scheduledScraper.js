@@ -1,6 +1,6 @@
 /**
  * Scheduled Scraper Service - MongoDB Version
- * FIXED: Correctly handles Mark6 and Lotto649 scrapers
+ * IMPROVED: Better error handling and clear user messages
  * services/scheduledScraper.js
  */
 
@@ -39,7 +39,8 @@ const schedulerState = {
     status: 'stopped',
     schedule: '0 */6 * * *',
     task: null,
-    lastResult: null
+    lastResult: null,
+    lastMessage: null
   },
   'mark6': {
     enabled: false,
@@ -48,7 +49,8 @@ const schedulerState = {
     nextRun: null,
     task: null,
     status: 'stopped',
-    lastResult: null
+    lastResult: null,
+    lastMessage: null
   },
   'lotto649': {
     enabled: false,
@@ -57,7 +59,8 @@ const schedulerState = {
     nextRun: null,
     task: null,
     status: 'stopped',
-    lastResult: null
+    lastResult: null,
+    lastMessage: null
   }
 };
 
@@ -101,6 +104,15 @@ function getScraper(gameType) {
   if (gameType === 'mark6') return scraperMark6;
   if (gameType === 'lotto649') return scraperLotto649;
   return scraper539;
+}
+
+function getGameDisplayName(gameType) {
+  const names = {
+    '539': '539 Lottery',
+    'mark6': 'Hong Kong Mark 6',
+    'lotto649': 'Taiwan Lotto 649'
+  };
+  return names[gameType] || gameType.toUpperCase();
 }
 
 /**
@@ -214,39 +226,68 @@ async function runScheduledScrape(gameType) {
   
   try {
     const scraper = getScraper(gameType);
-    const maxResults = 50;
+    const maxResults = gameType === '539' ? 100 : 50; // More for 539 since it's faster
     
     // Step 1: Scrape results
     console.log(`📡 STEP 1: Scraping ${gameType.toUpperCase()} results...`);
-    const scrapedResults = await scraper.scrapeResults(maxResults);
+    
+    let scrapedResults;
+    try {
+      scrapedResults = await scraper.scrapeResults(maxResults);
+    } catch (scrapeError) {
+      throw new Error(`Failed to fetch data from website: ${scrapeError.message}`);
+    }
     
     console.log(`\n🔍 Scraped Results Summary:`);
     console.log(`   Total scraped: ${scrapedResults.length}`);
     
-    if (scrapedResults.length === 0) {
-      throw new Error('No results scraped from website');
+    if (!scrapedResults || scrapedResults.length === 0) {
+      throw new Error('No results returned from website. The website may be down or blocking requests.');
     }
     
     // Show first and last scraped results
     if (scrapedResults.length > 0) {
-      console.log(`   First result: ${scrapedResults[0].date} - [${scrapedResults[0].numbers.join(', ')}]`);
-      console.log(`   Last result: ${scrapedResults[scrapedResults.length - 1].date} - [${scrapedResults[scrapedResults.length - 1].numbers.join(', ')}]`);
+      const first = scrapedResults[0];
+      const last = scrapedResults[scrapedResults.length - 1];
+      console.log(`   First result: ${first.date} - [${first.numbers.join(', ')}]${first.bonus ? ' +' + first.bonus : ''}`);
+      console.log(`   Last result: ${last.date} - [${last.numbers.join(', ')}]${last.bonus ? ' +' + last.bonus : ''}`);
     }
     
     // Step 2: Validate scraped results
-    const validation = scraper.validateResults ? scraper.validateResults(scrapedResults) : { valid: scrapedResults.length, invalid: 0 };
-    console.log(`\n✅ Validation Results:`, validation);
+    let validation = { valid: 0, invalid: 0, total: 0 };
+    try {
+      validation = scraper.validateResults ? scraper.validateResults(scrapedResults) : { 
+        valid: scrapedResults.length, 
+        invalid: 0,
+        total: scrapedResults.length
+      };
+      console.log(`\n✅ Validation Results:`);
+      console.log(`   Valid: ${validation.valid}/${validation.total}`);
+      if (validation.invalid > 0) {
+        console.log(`   Invalid: ${validation.invalid}`);
+        if (validation.errors && validation.errors.length > 0) {
+          console.log(`   First errors:`, validation.errors.slice(0, 3));
+        }
+      }
+    } catch (validationError) {
+      console.warn(`⚠️  Validation error (continuing anyway): ${validationError.message}`);
+    }
     
     if (validation.valid === 0) {
-      throw new Error('No valid results found after validation');
+      throw new Error('All scraped results failed validation. Check website format.');
     }
     
     // Step 3: Get existing dates from database
     console.log(`\n📊 STEP 2: Checking existing data in database...`);
     
-    const existingDates = await db.LotteryResult.find({
-      gameType: gameType
-    }).select('drawDate').lean();
+    let existingDates;
+    try {
+      existingDates = await db.LotteryResult.find({
+        gameType: gameType
+      }).select('drawDate').lean();
+    } catch (dbError) {
+      throw new Error(`Database error: ${dbError.message}`);
+    }
     
     const existingDateStrings = new Set(
       existingDates.map(d => normalizeDate(d.drawDate))
@@ -257,20 +298,30 @@ async function runScheduledScrape(gameType) {
     // Step 4: Filter out existing results
     const newResults = scrapedResults.filter(r => {
       const dateStr = normalizeDate(r.date || r.drawDate);
-      return !existingDateStrings.has(dateStr);
+      return dateStr && !existingDateStrings.has(dateStr);
     });
     
     console.log(`   Found ${newResults.length} new results to save`);
     
     if (newResults.length === 0) {
       console.log('\n✅ Database is already up to date - no new results to save');
+      
+      const displayName = getGameDisplayName(gameType);
+      const message = `${displayName} is already up-to-date! Database has all ${existingDateStrings.size} available results.`;
+      
       state.status = 'success';
-      state.lastResult = 'Database already up to date';
+      state.lastResult = 'up-to-date';
+      state.lastMessage = message;
+      
       return {
         success: true,
-        message: 'No new results',
+        status: 'up-to-date',
+        message: message,
         added: 0,
-        skipped: scrapedResults.length
+        skipped: scrapedResults.length,
+        total: existingDateStrings.size,
+        scraped: scrapedResults.length,
+        upToDate: true
       };
     }
     
@@ -278,16 +329,22 @@ async function runScheduledScrape(gameType) {
     console.log(`\n💾 STEP 3: Saving ${newResults.length} new results...`);
     
     // Get the highest numeric ID for sequential numbering
-    const lastResult = await db.LotteryResult.findOne({
-      _id: { $type: "number" }
-    })
-    .sort({ _id: -1 })
-    .lean();
+    let lastResult;
+    try {
+      lastResult = await db.LotteryResult.findOne({
+        _id: { $type: "number" }
+      })
+      .sort({ _id: -1 })
+      .lean();
+    } catch (dbError) {
+      throw new Error(`Failed to get last ID: ${dbError.message}`);
+    }
     
     let nextId = (lastResult?._id || 10000) + 1;
     
     let savedCount = 0;
     let failedCount = 0;
+    const errors = [];
     
     // Sort by date (newest first) - prioritize latest results
     newResults.sort((a, b) => {
@@ -307,6 +364,7 @@ async function runScheduledScrape(gameType) {
         if (!dateStr || !numbers || numbers.length !== expectedNumberCount) {
           console.log(`  ⚠️ Skipping invalid result: ${dateStr} - ${numbers?.length || 0} numbers`);
           failedCount++;
+          errors.push(`Invalid data for ${dateStr}: expected ${expectedNumberCount} numbers, got ${numbers?.length || 0}`);
           continue;
         }
         
@@ -328,38 +386,81 @@ async function runScheduledScrape(gameType) {
       } catch (saveError) {
         console.log(`  ⚠️ Failed to save result:`, saveError.message);
         failedCount++;
+        errors.push(saveError.message);
       }
     }
     
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🎉 Scraping Complete for ${gameType.toUpperCase()}`);
     console.log(`   ✅ Successfully saved: ${savedCount}`);
-    console.log(`   ⚠️ Failed: ${failedCount}`);
+    if (failedCount > 0) {
+      console.log(`   ⚠️ Failed: ${failedCount}`);
+    }
     console.log(`   📊 Total in database: ${existingDateStrings.size + savedCount}`);
     console.log(`${'='.repeat(60)}\n`);
     
-    // Update state
-    state.status = 'success';
-    state.lastResult = `Saved ${savedCount} new results`;
+    // Determine final status
+    const displayName = getGameDisplayName(gameType);
+    let message;
+    let finalStatus;
     
-    // Create backup after successful scrape
     if (savedCount > 0) {
-      await createBackup(gameType);
+      finalStatus = 'success';
+      if (failedCount > 0) {
+        message = `✅ Added ${savedCount} new result${savedCount !== 1 ? 's' : ''} to ${displayName}. ${failedCount} failed to save.`;
+      } else {
+        message = `✅ Successfully added ${savedCount} new result${savedCount !== 1 ? 's' : ''} to ${displayName}!`;
+      }
+      
+      // Create backup after successful scrape
+      try {
+        await createBackup(gameType);
+      } catch (backupError) {
+        console.warn('⚠️  Backup failed:', backupError.message);
+      }
+    } else {
+      finalStatus = 'partial-failure';
+      message = `⚠️ No results were saved for ${displayName}. ${failedCount} result${failedCount !== 1 ? 's' : ''} failed validation.`;
     }
     
+    // Update state
+    state.status = finalStatus;
+    state.lastResult = finalStatus;
+    state.lastMessage = message;
+    
     return {
-      success: true,
-      message: `Saved ${savedCount} new results`,
+      success: savedCount > 0,
+      status: finalStatus,
+      message: message,
       added: savedCount,
-      skipped: scrapedResults.length - savedCount,
-      total: existingDateStrings.size + savedCount
+      failed: failedCount,
+      skipped: scrapedResults.length - newResults.length,
+      total: existingDateStrings.size + savedCount,
+      scraped: scrapedResults.length,
+      errors: errors.slice(0, 5), // Include first 5 errors
+      upToDate: false
     };
     
   } catch (error) {
     console.error(`\n❌ Error during ${gameType} scraping:`, error.message);
+    console.error('Stack trace:', error.stack);
+    
+    const displayName = getGameDisplayName(gameType);
+    const errorMessage = `❌ Failed to update ${displayName}: ${error.message}`;
+    
     state.status = 'error';
-    state.lastResult = error.message;
-    throw error;
+    state.lastResult = 'error';
+    state.lastMessage = errorMessage;
+    
+    return {
+      success: false,
+      status: 'error',
+      message: errorMessage,
+      error: error.message,
+      added: 0,
+      failed: 0,
+      total: 0
+    };
   }
 }
 
@@ -517,7 +618,8 @@ function getStatus(gameType) {
     ...schedulerState[gameType],
     lastRun: schedulerState[gameType].lastRun,
     nextRun: schedulerState[gameType].nextRun,
-    status: schedulerState[gameType].status
+    status: schedulerState[gameType].status,
+    lastMessage: schedulerState[gameType].lastMessage
   };
 }
 
@@ -542,13 +644,20 @@ async function triggerScrape(gameType) {
     const result = await runScheduledScrape(gameType);
     
     schedulerState[gameType].lastRun = new Date();
-    schedulerState[gameType].status = 'success';
+    
+    // Return the result which includes clear messaging
     return result;
     
   } catch (error) {
     console.error(`❌ Error during ${gameType} scraping:`, error);
+    
+    const displayName = getGameDisplayName(gameType);
+    const errorMessage = `❌ Failed to update ${displayName}: ${error.message}`;
+    
     schedulerState[gameType].status = 'error';
-    schedulerState[gameType].lastResult = error.message;
+    schedulerState[gameType].lastResult = 'error';
+    schedulerState[gameType].lastMessage = errorMessage;
+    
     throw error;
   }
 }
