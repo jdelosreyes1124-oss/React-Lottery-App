@@ -1,17 +1,17 @@
 /**
  * Web Scraper Service for Hong Kong Mark Six
- * FIXED: Compatible with scheduledScraper.js
+ * AXIOS VERSION - No Puppeteer/Browser required!
+ * Compatible with Render.com and all hosting platforms
  * services/scraperMark6.js
  */
 
-const puppeteer = require('puppeteer-core');
-const chromium = require('@sparticuz/chromium');
+const axios = require('axios');
+const cheerio = require('cheerio');
 
 class Mark6ScraperService {
   constructor() {
     this.baseUrl = 'https://en.lottolyzer.com/history/hong-kong/mark-six/page/PAGE_NUM/per-page/50/summary-view';
-    this.timeout = 60000;
-    this.headless = true;
+    this.timeout = 30000;
     this.maxPages = 102;
   }
 
@@ -21,104 +21,20 @@ class Mark6ScraperService {
    * @returns {Promise<Array>} Array of lottery results
    */
   async scrapeResults(maxResults = 50) {
-    console.log('🔍 Starting Mark 6 scraper...');
+    console.log('🔍 Starting Mark 6 scraper (Axios version)...');
     console.log(`📊 Target: ${maxResults} results`);
     
-    let browser = null;
-    
-    try {
-      browser = await this.launchBrowser();
-      const page = await this.createPage(browser);
-      const results = await this.collectFromHistoryPages(page, maxResults);
-      
-      console.log(`✅ Scraped ${results.length} Mark 6 results`);
-      return results;
-      
-    } catch (error) {
-      console.error('❌ Mark 6 scraper failed:', error.message);
-      throw error;
-    } finally {
-      if (browser) {
-        await browser.close();
-        console.log('🔒 Browser closed');
-      }
-    }
-  }
-
-  async launchBrowser() {
-    try {
-      console.log('🚀 Launching browser for Mark 6...');
-      
-      // Check if running in production (Render) or local development
-      const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER;
-      
-      let options;
-      
-      if (isProduction) {
-        console.log('📦 Using @sparticuz/chromium for production...');
-        
-        options = {
-          args: chromium.args,
-          defaultViewport: chromium.defaultViewport,
-          executablePath: await chromium.executablePath(),
-          headless: chromium.headless,
-          ignoreHTTPSErrors: true,
-        };
-      } else {
-        console.log('💻 Using local Puppeteer for development...');
-        
-        // Try to use local Puppeteer installation
-        const puppeteerLocal = require('puppeteer');
-        const browser = await puppeteerLocal.launch({
-          headless: this.headless,
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--no-first-run',
-            '--no-zygote',
-            '--single-process',
-            '--disable-extensions'
-          ],
-          ignoreHTTPSErrors: true,
-        });
-        
-        const version = await browser.version();
-        console.log('✅ Browser launched successfully:', version);
-        return browser;
-      }
-
-      const browser = await puppeteer.launch(options);
-      const version = await browser.version();
-      console.log('✅ Browser launched successfully:', version);
-      return browser;
-    } catch (error) {
-      console.error('❌ Failed to launch browser:', error);
-      throw error;
-    }
-  }
-
-  async createPage(browser) {
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
-    page.setDefaultTimeout(this.timeout);
-    return page;
-  }
-
-  async collectFromHistoryPages(page, maxResults) {
-    const allResults = [];
-    const avgResultsPerPage = 35;
-    const estimatedPages = Math.ceil(maxResults / avgResultsPerPage);
+    const results = [];
+    const resultsPerPage = 50;
+    const estimatedPages = Math.ceil(maxResults / resultsPerPage);
     const totalPages = Math.min(estimatedPages, this.maxPages);
     
     console.log(`📋 Will scrape up to ${totalPages} pages`);
     
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-      console.log(`📄 Page ${pageNum}/${totalPages} (Total: ${allResults.length}/${maxResults})`);
+      console.log(`📄 Page ${pageNum}/${totalPages} (Total: ${results.length}/${maxResults})`);
       
-      if (allResults.length >= maxResults) {
+      if (results.length >= maxResults) {
         console.log('✅ Target reached!');
         break;
       }
@@ -126,67 +42,133 @@ class Mark6ScraperService {
       const url = this.baseUrl.replace('PAGE_NUM', pageNum);
       
       try {
-        await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Fetch the page
+        const response = await axios.get(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+          },
+          timeout: this.timeout
+        });
         
-        const pageResults = await this.extractFromHistoryPage(page);
+        // Parse with Cheerio
+        const $ = cheerio.load(response.data);
+        
+        // Extract results from this page
+        const pageResults = this.extractFromPage($);
         console.log(`   Extracted: ${pageResults.length} results`);
         
-        if (pageResults.length === 0) break;
+        if (pageResults.length === 0) {
+          console.log('   No results found, stopping...');
+          break;
+        }
         
+        // Add new results (avoid duplicates)
         let added = 0;
         for (const result of pageResults) {
-          if (allResults.length >= maxResults) break;
-          if (!allResults.some(r => r.date === result.date)) {
-            allResults.push(result);
+          if (results.length >= maxResults) break;
+          
+          // Check for duplicate dates
+          if (!results.some(r => r.date === result.date)) {
+            results.push(result);
             added++;
           }
         }
         
-        console.log(`   Added: ${added} new`);
-        if (added === 0 && pageNum > 1) break;
+        console.log(`   Added: ${added} new results`);
+        
+        // If we didn't add any new results and we're past page 1, stop
+        if (added === 0 && pageNum > 1) {
+          console.log('   No new results, stopping...');
+          break;
+        }
+        
+        // Add delay between requests to be polite
+        if (pageNum < totalPages) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
         
       } catch (error) {
-        console.log(`   ❌ Error: ${error.message}`);
+        console.error(`   ❌ Error fetching page ${pageNum}:`, error.message);
+        // Continue to next page instead of failing completely
         continue;
       }
     }
     
-    return allResults;
+    console.log(`\n✅ Mark 6 scrape complete: ${results.length} results found`);
+    return results;
   }
 
-  async extractFromHistoryPage(page) {
-    return await page.evaluate(() => {
-      const results = [];
-      const tables = document.querySelectorAll('table');
+  /**
+   * Extract results from a Cheerio-loaded page
+   * @param {CheerioStatic} $ - Cheerio instance
+   * @returns {Array} Extracted results
+   */
+  extractFromPage($) {
+    const results = [];
+    
+    // Find all tables on the page
+    const tables = $('table');
+    
+    tables.each((tableIndex, table) => {
+      const $table = $(table);
       
-      for (const table of tables) {
-        const rows = table.querySelectorAll('tr');
+      // Get header row to identify columns
+      const headerCells = $table.find('thead tr th, thead tr td');
+      let dateColIndex = -1;
+      let winningNoColIndex = -1;
+      let extraNoColIndex = -1;
+      
+      // Find column indices by header text
+      headerCells.each((index, element) => {
+        const headerText = $(element).text().trim().toLowerCase();
+        if (headerText.includes('date')) {
+          dateColIndex = index;
+        } else if (headerText.includes('winning no')) {
+          winningNoColIndex = index;
+        } else if (headerText.includes('extra no') || headerText.includes('bonus')) {
+          extraNoColIndex = index;
+        }
+      });
+      
+      // Fallback to default indices if headers not found
+      if (dateColIndex === -1) dateColIndex = 1;
+      if (winningNoColIndex === -1) winningNoColIndex = 2;
+      if (extraNoColIndex === -1) extraNoColIndex = 3;
+      
+      // Find table rows
+      let rows = $table.find('tbody tr');
+      if (rows.length === 0) {
+        rows = $table.find('tr').not(':first');
+      }
+      
+      // Process each row
+      rows.each((rowIndex, row) => {
+        const cells = $(row).find('td');
         
-        for (const row of rows) {
-          const cells = Array.from(row.querySelectorAll('td, th'));
-          
-          // Need at least 4 cells: draw, date, numbers, bonus 
-          if (cells.length < 4) continue;
-          
-          // Skip header rows
-          const firstCellText = cells[0]?.textContent.trim().toLowerCase() || '';
-          if (firstCellText === 'draw' || firstCellText === 'date') continue;
-          
+        // Need at least 4 cells
+        if (cells.length < 4) return;
+        
+        // Skip header rows
+        const firstCellText = $(cells[0]).text().trim().toLowerCase();
+        if (firstCellText === 'draw' || firstCellText === 'date') return;
+        
+        try {
+          // Extract date
+          const dateText = $(cells[dateColIndex]).text().trim();
           let date = null;
-          let numbers = [];
-          let bonus = null;
-          
-          // Cell 2 typically contains the date (index 1)
-          const dateCell = cells[1]?.textContent.trim() || '';
           
           // Try YYYY-MM-DD format first
-          let match = dateCell.match(/(\d{4})[-\/](\d{2})[-\/](\d{2})/);
+          let match = dateText.match(/(\d{4})[-\/](\d{2})[-\/](\d{2})/);
           if (match) {
             date = `${match[1]}-${match[2]}-${match[3]}`;
           } else {
             // Try DD Mon YYYY format
-            match = dateCell.match(/(\d{2})\s+(\w{3})\s+(\d{4})/);
+            match = dateText.match(/(\d{2})\s+(\w{3})\s+(\d{4})/);
             if (match) {
               const months = {
                 'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
@@ -200,46 +182,44 @@ class Mark6ScraperService {
             }
           }
           
-          // Cell 3 typically contains the winning numbers (index 2) 
-          const numbersCell = cells[2]?.textContent.trim() || '';
+          if (!date) return; // Skip if we couldn't parse the date
           
-          // Numbers are comma-separated: "13,21,33,41,44,46"
-          if (numbersCell) {
-            const numberStrings = numbersCell.split(',');
-            numbers = numberStrings
-              .map(n => parseInt(n.trim()))
-              .filter(n => !isNaN(n) && n >= 1 && n <= 49);
+          // Extract winning numbers
+          const numbersText = $(cells[winningNoColIndex]).text().trim();
+          const numbers = numbersText
+            .split(',')
+            .map(n => parseInt(n.trim()))
+            .filter(n => !isNaN(n) && n >= 1 && n <= 49);
+          
+          // Must have exactly 6 numbers
+          if (numbers.length !== 6) return;
+          
+          // Extract bonus/extra number
+          const bonusText = $(cells[extraNoColIndex]).text().trim();
+          const bonus = parseInt(bonusText);
+          
+          // Create result object
+          const result = {
+            date,
+            numbers: numbers.sort((a, b) => a - b),
+            gameType: 'mark6'
+          };
+          
+          // Add bonus if valid and not in main numbers
+          if (!isNaN(bonus) && bonus >= 1 && bonus <= 49 && !numbers.includes(bonus)) {
+            result.bonus = bonus;
           }
           
-          // Cell 4 typically contains the bonus/extra number (index 3)
-          const bonusCell = cells[3]?.textContent.trim() || '';
-          if (bonusCell) {
-            const bonusNum = parseInt(bonusCell);
-            if (!isNaN(bonusNum) && bonusNum >= 1 && bonusNum <= 49) {
-              bonus = bonusNum;
-            }
-          }
+          results.push(result);
           
-          // Only add if we have valid date and exactly 6 numbers
-          if (date && numbers.length === 6) {
-            const result = {
-              date,
-              numbers: numbers.sort((a, b) => a - b),
-              gameType: 'mark6'
-            };
-            
-            // Add bonus if valid and not already in main numbers
-            if (bonus && !numbers.includes(bonus)) {
-              result.bonus = bonus;
-            }
-            
-            results.push(result);
-          }
+        } catch (err) {
+          // Skip invalid rows
+          console.error(`   Error parsing row: ${err.message}`);
         }
-      }
-      
-      return results;
+      });
     });
+    
+    return results;
   }
 
   /**
@@ -341,10 +321,13 @@ class Mark6ScraperService {
     return { valid: true };
   }
 
+  /**
+   * Debug method - same as scrapeResults but with more logging
+   */
   async debugScrape(maxResults = 50) {
-    this.headless = false;
     return this.scrapeResults(maxResults);
   }
 }
 
+// Export singleton instance
 module.exports = new Mark6ScraperService();
