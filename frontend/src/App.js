@@ -71,7 +71,7 @@ const api = {
       if (!res.ok) {
         // Handle specific error cases with user-friendly messages
         if (res.status === 409) {
-          throw new Error(data.message || data.error || 'Username already exists. Please choose a different username.');
+          throw new Error(data.message || data.error || 'This username is already taken. Please choose a different username.');
         }
         if (res.status === 400) {
           throw new Error(data.message || data.error || 'Invalid registration information. Please check your details.');
@@ -80,6 +80,16 @@ const api = {
       }
       return data;
     }),
+  
+  // Check if username is available
+  checkUsername: (username) =>
+    fetch(`${API_BASE_URL}/auth/check-username?username=${encodeURIComponent(username)}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    }).then(async res => {
+      const data = await res.json();
+      return data; // Returns { available: true/false }
+    }).catch(() => ({ available: true })), // If endpoint doesn't exist, assume available
   
   googleLogin: (tokenId) =>
     fetch(`${API_BASE_URL}/auth/google`, {
@@ -3377,6 +3387,47 @@ const SignUpForm = ({ onClose, onSwitchToLogin }) => {
   const [showGoogleUsernamePrompt, setShowGoogleUsernamePrompt] = useState(false);
   const [googleToken, setGoogleToken] = useState(null);
   const [googleUsername, setGoogleUsername] = useState('');
+  const [usernameStatus, setUsernameStatus] = useState({ checking: false, available: null, message: '' });
+  
+  // Debounced username checker
+  useEffect(() => {
+    const checkUsernameAvailability = async () => {
+      const username = formData.username.trim();
+      
+      // Reset if username is too short
+      if (username.length < 3) {
+        setUsernameStatus({ checking: false, available: null, message: '' });
+        return;
+      }
+      
+      // Start checking
+      setUsernameStatus({ checking: true, available: null, message: 'Checking...' });
+      
+      try {
+        const result = await api.checkUsername(username);
+        if (result.available) {
+          setUsernameStatus({ 
+            checking: false, 
+            available: true, 
+            message: '✓ Username available!' 
+          });
+        } else {
+          setUsernameStatus({ 
+            checking: false, 
+            available: false, 
+            message: '✗ Username already taken' 
+          });
+        }
+      } catch (error) {
+        // If check fails, don't show error (endpoint might not exist)
+        setUsernameStatus({ checking: false, available: null, message: '' });
+      }
+    };
+    
+    // Debounce the check by 500ms
+    const timeoutId = setTimeout(checkUsernameAvailability, 500);
+    return () => clearTimeout(timeoutId);
+  }, [formData.username]);
 
   const handleGoogleResponse = React.useCallback(async (response) => {
     // Store the token and show username prompt
@@ -3665,16 +3716,42 @@ const SignUpForm = ({ onClose, onSwitchToLogin }) => {
                 <User className="inline h-4 w-4 mr-1" />
                 Username
               </label>
-              <input
-                type="text"
-                value={formData.username}
-                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder="Choose a username"
-                required
-                disabled={isLoading}
-                minLength={3}
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  value={formData.username}
+                  onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all pr-10 ${
+                    usernameStatus.available === false ? 'border-red-300 bg-red-50' : 
+                    usernameStatus.available === true ? 'border-green-300 bg-green-50' : 
+                    'border-gray-300'
+                  }`}
+                  placeholder="Choose a username"
+                  required
+                  disabled={isLoading}
+                  minLength={3}
+                />
+                {formData.username.length >= 3 && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    {usernameStatus.checking ? (
+                      <Loader2 className="h-5 w-5 text-gray-400 animate-spin" />
+                    ) : usernameStatus.available === true ? (
+                      <CheckCircle2 className="h-5 w-5 text-green-500" />
+                    ) : usernameStatus.available === false ? (
+                      <X className="h-5 w-5 text-red-500" />
+                    ) : null}
+                  </div>
+                )}
+              </div>
+              {formData.username.length >= 3 && usernameStatus.message && (
+                <p className={`text-xs mt-1 ${
+                  usernameStatus.available === true ? 'text-green-600' : 
+                  usernameStatus.available === false ? 'text-red-600' : 
+                  'text-gray-500'
+                }`}>
+                  {usernameStatus.message}
+                </p>
+              )}
             </div>
 
             <div>

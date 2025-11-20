@@ -760,5 +760,35 @@ router.delete('/users/delete-all-google', async (req, res) => {
     });
   }
 });
-
+router.get('/check-username', async (req, res) => {
+  try {
+    const { username } = req.query;
+    
+    if (!username || username.length < 3) {
+      return res.json({ available: false, message: 'Username too short' });
+    }
+    
+    // Check if username exists in database
+    const existingUser = await User.findOne({ 
+      username: username.toLowerCase().trim() 
+    });
+    
+    if (existingUser) {
+      return res.json({ 
+        available: false, 
+        message: 'Username already taken' 
+      });
+    }
+    
+    return res.json({ 
+      available: true, 
+      message: 'Username available' 
+    });
+    
+  } catch (error) {
+    console.error('Username check error:', error);
+    // Return available as true if check fails (graceful degradation)
+    res.json({ available: true, message: 'Check unavailable' });
+  }
+});
 module.exports = router;
