@@ -865,12 +865,33 @@ router.post('/:gameType/automation', async (req, res) => {
       console.log(`✅✅✅ COUNT IS CORRECT!`);
     }
     
+    // GENERATE BONUS NUMBER for Mark 6 and Lotto 649
+    let bonusNumber = null;
+    if (config.hasBonus) {
+      // Generate bonus from frequency data (most frequent number not in topNumbers)
+      const bonusCandidate = frequencyData.find(item => !topNumbers.includes(item.number));
+      if (bonusCandidate) {
+        bonusNumber = bonusCandidate.number;
+        console.log(`🎁 Generated bonus from frequency: ${bonusNumber}`);
+      } else {
+        // Fallback: generate random bonus not in topNumbers
+        let attempts = 0;
+        do {
+          bonusNumber = Math.floor(Math.random() * config.maxNumber) + 1;
+          attempts++;
+        } while (topNumbers.includes(bonusNumber) && attempts < 100);
+        console.log(`🎁 Generated random bonus: ${bonusNumber}`);
+      }
+      console.log(`✅ Bonus number: ${bonusNumber}`);
+    }
+    
     console.log('═'.repeat(60));
     console.log('🤖 AUTOMATION REQUEST END');
     console.log('═'.repeat(60));
     console.log('');
     
-    res.json({
+    // Build response object
+    const responseData = {
       success: true,
       totalIterations: iterations,
       uniqueCombinations: combinations.size,
@@ -890,7 +911,14 @@ router.post('/:gameType/automation', async (req, res) => {
           totalUniqueNumbers: frequencyData.length
         }
       }
-    });
+    };
+    
+    // Add bonus number if applicable
+    if (bonusNumber !== null) {
+      responseData.bonus = bonusNumber;
+    }
+    
+    res.json(responseData);
   } catch (error) {
     console.error('Error in automation:', error);
     res.status(500).json({
