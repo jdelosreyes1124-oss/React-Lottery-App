@@ -3844,33 +3844,54 @@ const SignUpForm = ({ onClose, onSwitchToLogin }) => {
 };
 // Google Sign-In Button Component
 const GoogleSignInButton = ({ onSuccess, onError, disabled }) => {
+  const buttonInitialized = React.useRef(false);
+  const callbackRef = React.useRef(null);
+  
+  // Store the latest callbacks in a ref so we can use them without re-initializing
+  React.useEffect(() => {
+    callbackRef.current = { onSuccess, onError };
+  }, [onSuccess, onError]);
+  
   const handleCredentialResponse = React.useCallback(async (response) => {
     try {
-      if (response.credential) {
-        await onSuccess(response.credential);
+      if (response.credential && callbackRef.current) {
+        await callbackRef.current.onSuccess(response.credential);
       }
     } catch (error) {
       console.error('Google login error:', error);
-      onError(error.message || 'Google login failed');
+      if (callbackRef.current) {
+        callbackRef.current.onError(error.message || 'Google login failed');
+      }
     }
-  }, [onSuccess, onError]);
+  }, []); // ✅ No dependencies - uses ref instead!
 
   useEffect(() => {
-    // Load Google Sign-In script
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.defer = true;
-    document.body.appendChild(script);
+    // Only initialize once
+    if (buttonInitialized.current) return;
+    
+    // Check if script already exists
+    const existingScript = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+    
+    if (existingScript) {
+      // Script already loaded, just initialize button
+      initializeButton();
+    } else {
+      // Load Google Sign-In script
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      document.body.appendChild(script);
+      script.onload = initializeButton;
+    }
 
-    script.onload = () => {
-      if (window.google && GOOGLE_CLIENT_ID) {
+    function initializeButton() {
+      if (window.google && GOOGLE_CLIENT_ID && !buttonInitialized.current) {
         window.google.accounts.id.initialize({
           client_id: GOOGLE_CLIENT_ID,
           callback: handleCredentialResponse,
         });
 
-        // Get the actual width of the container
         const buttonContainer = document.getElementById('googleSignInButton');
         if (buttonContainer) {
           const containerWidth = buttonContainer.offsetWidth || 328;
@@ -3885,16 +3906,21 @@ const GoogleSignInButton = ({ onSuccess, onError, disabled }) => {
               shape: 'rectangular',
             }
           );
+          buttonInitialized.current = true;
+        }
+      }
+    }
+
+    return () => {
+      // Only cleanup if we added the script
+      if (!existingScript) {
+        const script = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+        if (script && document.body.contains(script)) {
+          document.body.removeChild(script);
         }
       }
     };
-
-    return () => {
-      if (document.body.contains(script)) {
-        document.body.removeChild(script);
-      }
-    };
-  }, [handleCredentialResponse]);
+  }, []); // ✅ Empty dependency array - only run once!
 
   return (
     <div className="w-full">
