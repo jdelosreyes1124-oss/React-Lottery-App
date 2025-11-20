@@ -4344,12 +4344,7 @@ const handleRunAutomation = async (gameType) => {
       
     if (result.success) {
       // Determine how many top numbers to show based on game type
-      const gameNumberCounts = {
-        '539': 8,        // Always 8 numbers for 539
-        'mark6': 6,      // 6 numbers for Mark 6
-        'lotto649': 6    // 6 numbers for Lotto 6/49
-      };
-      const desiredCount = gameNumberCounts[gameType] || 8;
+      const desiredCount = 8;
       
       // Get the top numbers based on frequency
       let finalTopNumbers = [...(result.topNumbers || [])];
@@ -4372,7 +4367,8 @@ const handleRunAutomation = async (gameType) => {
           iterations: result.totalIterations || result.iterations,
           allResults: [],
           frequencyData: result.frequencyData,
-          metadata: result.metadata
+          metadata: result.metadata,
+          bonus: result.bonus  // ✅ CRITICAL FIX - Pass bonus from API response to state
         }
       }));
 
