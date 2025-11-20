@@ -1982,12 +1982,7 @@ const LoginForm = ({ onClose }) => {
             {isLoading ? 'Signing in...' : 'Sign In'}
           </button>
 
-          {/* Demo credentials hint */}
-          <div className="text-center">
-            <p className="text-xs text-gray-500 mt-2">
-              Demo: admin / admin123
-            </p>
-          </div>
+          
         </div>
       </div>
     </div>
