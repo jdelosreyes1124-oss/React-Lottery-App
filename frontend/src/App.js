@@ -3968,13 +3968,13 @@ const GoogleLoginScreen = () => {
         if (result.error === 'USER_NOT_FOUND' || 
             (result.message && result.message.includes('not found')) ||
             (result.error && result.error.includes('not registered'))) {
-          setError('⚠️ This Google account is not registered yet. Please click "Sign Up" below to create your account first.');
+          setError("USER_NOT_FOUND");
         } else {
-          setError(result.error || result.message || 'Google login failed');
+          let errorMsg = (result.error || result.message || "Google login failed").replace(/HTTP\s*\d+\s*/gi, "").trim(); setError(errorMsg);
         }
       }
     } catch (err) {
-      setError(err.message || 'Google login failed');
+      let errorMsg = (err.message || "Google login failed").replace(/HTTP\s*\d+\s*/gi, "").trim(); setError(errorMsg);
     } finally {
       setIsLoading(false);
     }
@@ -4020,7 +4020,7 @@ const GoogleLoginScreen = () => {
                 </div>
                 <div className="flex-1">
                   <h4 className="text-base font-bold text-red-900 mb-2">Sign In Failed</h4>
-                  <p className="text-sm text-red-800 mb-3">{error}</p>
+                  <p className="text-sm text-red-800 mb-3">{error === "USER_NOT_FOUND" ? "" : error}</p>
                   {(error.includes('not registered') || error.includes('not found') || error.includes('HTTP 404') || error.includes('USER_NOT_FOUND')) && (
                     <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded mb-3">
                       <p className="text-xs font-medium text-yellow-800 mb-2">
@@ -4136,7 +4136,7 @@ const GoogleLoginScreen = () => {
                 Sign Up
               </button>
             </p>
-            
+            <p className="text-xs text-gray-500 border-t pt-4">Demo: admin / admin123</p>
           </div>
         </div>
 
