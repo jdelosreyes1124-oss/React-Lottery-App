@@ -97,9 +97,18 @@ const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: tokenId }),
       credentials: 'include'
-    }).then(res => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
+    }).then(async res => {
+      const data = await res.json();
+      if (!res.ok) {
+        if (res.status === 404) {
+          throw new Error(data.message || data.error || 'This Google account is not registered. Please sign up first.');
+        }
+        if (res.status === 401) {
+          throw new Error(data.message || data.error || 'Invalid Google credentials');
+        }
+        throw new Error(data.message || data.error || 'Google login failed. Please try again.');
+      }
+      return data;
     }),
   
  googleRegister: (tokenId, username) =>
@@ -3964,17 +3973,13 @@ const GoogleLoginScreen = () => {
     try {
       const result = await googleLogin(token);
       if (!result.success) {
-        // Check if account needs to be registered
-        if (result.error === 'USER_NOT_FOUND' || 
-            (result.message && result.message.includes('not found')) ||
-            (result.error && result.error.includes('not registered'))) {
-          setError("This Google account is not registered yet. Please create an account first.");
-        } else {
-          let errorMsg = (result.error || result.message || "Google login failed").replace(/HTTP\s*\d+\s*/gi, "").trim(); setError(errorMsg);
-        }
+        // Set the error message - API now returns clean messages
+        const errorMsg = result.error || result.message || 'Google login failed. Please try again.';
+        setError(errorMsg);
       }
     } catch (err) {
-      let errorMsg = (err.message || "Google login failed").replace(/HTTP\s*\d+\s*/gi, "").trim(); setError(errorMsg);
+      const errorMsg = err.message || 'Google login failed. Please try again.';
+      setError(errorMsg);
     } finally {
       setIsLoading(false);
     }
