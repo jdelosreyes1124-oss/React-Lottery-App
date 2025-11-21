@@ -4373,9 +4373,7 @@ const generateMockAutomation = (gameType, multiplier) => {
 
 // Main App
 function App() {
-    useEffect(() => {
-    document.title = "AI Lottery Predictor";
-  }, []);
+  
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   
 
