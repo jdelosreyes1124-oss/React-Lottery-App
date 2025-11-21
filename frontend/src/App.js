@@ -4373,28 +4373,12 @@ const generateMockAutomation = (gameType, multiplier) => {
 
 // Main App
 function App() {
+  // ✅ SECTION 1: ALL HOOKS FIRST (before any conditional returns)
   
+  // Custom Hooks
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   
-
-  // Show login screen first if not authenticated
-  if (!isAuthenticated && !authLoading) {
-    return <GoogleLoginScreen />;
-  }
-
-  // Show loading while checking auth
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-blue-500 mx-auto mb-4" />
-          <p className="text-gray-600">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Main app for authenticated users
+  // State Hooks - ALL declared at the top
   const [selectedGame, setSelectedGame] = useState(null);
   const [predictions, setPredictions] = useState({});
   const [isLoading, setIsLoading] = useState(false);
@@ -4415,6 +4399,32 @@ function App() {
   const [showRollingPrediction, setShowRollingPrediction] = useState(null);
   const [showLottoPicker, setShowLottoPicker] = useState(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  
+  // Effect Hooks
+  useEffect(() => {
+    document.title = "AI Lottery Predictor"; // ← Change this to your app name
+  }, []);
+  
+  // ✅ SECTION 2: CONDITIONAL RETURNS (after all hooks)
+  
+  // Show login screen first if not authenticated
+  if (!isAuthenticated && !authLoading) {
+    return <GoogleLoginScreen />;
+  }
+
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-blue-500 mx-auto mb-4" />
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ SECTION 3: FUNCTIONS AND MAIN RETURN
 
   const handlePredict = async (gameType, customPrediction = null) => {
     if (customPrediction) {
