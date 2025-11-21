@@ -4373,10 +4373,11 @@ const generateMockAutomation = (gameType, multiplier) => {
 
 // Main App
 function App() {
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
     useEffect(() => {
     document.title = "AI Lottery Predictor";
   }, []);
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  
 
   // Show login screen first if not authenticated
   if (!isAuthenticated && !authLoading) {
