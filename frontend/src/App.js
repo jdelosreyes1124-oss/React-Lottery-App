@@ -4141,7 +4141,7 @@ const GoogleLoginScreen = () => {
                 Sign Up
               </button>
             </p>
-            <p className="text-xs text-gray-500 border-t pt-4">Demo: admin / admin123</p>
+          
           </div>
         </div>
 
